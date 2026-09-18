@@ -1,0 +1,22 @@
+# Java / Maven
+backend/target/
+*.class
+
+# Node
+dashboard/node_modules/
+dashboard/dist/
+npm-debug.log*
+
+# PlatformIO
+firmware/.pio/
+firmware/.vscode/
+
+
+firmware/src/config.h
+
+.idea/
+.vscode/
+.DS_Store
+*.iml
+
+deploy/door-sensor.service

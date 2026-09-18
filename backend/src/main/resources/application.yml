@@ -1,0 +1,74 @@
+spring:
+  application:
+    name: door-sensor
+  datasource:
+    url: jdbc:postgresql://localhost:5432/doorsensor
+    username: doorsensor
+    password: doorsensor
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  jackson:
+    default-property-inclusion: non_null
+
+server:
+  port: 8080
+
+app:
+  mqtt:
+    broker-url: tcp://localhost:1883
+    client-id: door-sensor-backend
+    username: ''
+    password: ''
+    state-topic: home/door/+/state
+    status-topic: home/door/+/status
+    qos: 1
+    automatic-reconnect: true
+    clean-session: true
+    connection-timeout-seconds: 10
+    keep-alive-seconds: 30
+  device:
+    offline-after-seconds: 900
+    watchdog-interval-ms: 30000
+  cors:
+    allowed-origins: 'http://localhost:5173,http://localhost:4173'
+
+  notify:
+    enabled: false
+
+    telegram:
+      bot-token: ''
+      chat-id: ''
+
+    door-open:
+      enabled: true
+      min-interval-seconds: 60
+      only-during-quiet-hours: false
+
+    offline:
+      enabled: true
+      grace-seconds: 180
+
+    battery:
+      enabled: true
+      threshold-mv: 3500
+      rearm-above-mv: 3700
+      cooldown-hours: 12
+
+    quiet-hours:
+      start: '22:00'
+      end: '06:00'
+      zone: 'Asia/Ho_Chi_Minh'
+
+logging:
+  level:
+    dev.dada.doorsensor: DEBUG
+    org.eclipse.paho: INFO

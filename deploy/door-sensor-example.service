@@ -1,0 +1,45 @@
+# Dich vu systemd cho backend.
+#
+# Cai dat tren Pi:
+#   sudo cp deploy/door-sensor.service /etc/systemd/system/
+#   sudo nano /etc/systemd/system/door-sensor.service    # sua User va token
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now door-sensor
+#
+# Xem log:     journalctl -u door-sensor -f
+# Khoi dong lai: sudo systemctl restart door-sensor
+
+[Unit]
+Description=Door Sensor Backend
+# Doi Docker len truoc, vi backend can Postgres va Mosquitto.
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/door-sensor
+
+# Thong tin Telegram. De o day thay vi trong application.yml de khong lo
+# commit token len GitHub.
+#
+# Lay token: nhan /newbot cho @BotFather
+# Lay chat id: nhan mot cau cho bot, roi mo
+#   https://api.telegram.org/bot<TOKEN>/getUpdates
+Environment="APP_NOTIFY_ENABLED=true"
+Environment="APP_NOTIFY_TELEGRAM_BOT_TOKEN=DIEN_TOKEN_VAO_DAY"
+Environment="APP_NOTIFY_TELEGRAM_CHAT_ID=DIEN_CHAT_ID_VAO_DAY"
+
+ExecStart=/usr/bin/java -Xmx256m -jar /home/pi/door-sensor/door-sensor.jar
+
+Restart=on-failure
+RestartSec=10
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
