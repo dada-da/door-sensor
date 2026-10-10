@@ -1,204 +1,75 @@
+
+#include "driver/gpio.h"
 #include <Arduino.h>
-#include <WiFi.h>
-#include <PubSubClient.h>
-#include <ArduinoJson.h>
-#include <time.h>
+#include "esp_sleep.h"
 
-#include "config.h"
+#define REED_PIN 4
+#define LED_PIN 8
+#define BOOT_PIN 9 // nut BOOT tren board
+#define SLEEP_SEC 10
 
-static WiFiClient wifiClient;
-static PubSubClient mqtt(wifiClient);
+RTC_DATA_ATTR uint32_t bootCount = 0; // nam trong bo nho RTC, song qua giac ngu
 
-static const char *TOPIC_STATE = "home/door/" DEVICE_ID "/state";
-static const char *TOPIC_STATUS = "home/door/" DEVICE_ID "/status";
-
-RTC_DATA_ATTR static uint32_t bootCount = 0;
-
-static int stableState = HIGH; // trang thai da khu rung
-static int lastRawRead = HIGH; // lan doc tho gan nhat
-static unsigned long lastChangeMs = 0;
-static unsigned long lastHeartbeat = 0;
-static unsigned long lastHealthyMs = 0;
-
-// ---------------------------------------------------------------- ket noi
-
-static void connectWifi()
+const char *lyDo()
 {
-  WiFi.mode(WIFI_STA);
-
-  // Tat tiet kiem dien Wi-Fi.
-  //
-  // Mac dinh ESP32 ngu giua cac nhip beacon cua AP, nen goi tin den co the bi
-  // tre hang tram mili giay. Voi thiet bi cam dien lien tuc thi khong duoc loi
-  // gi, ma lai lam goi ping MQTT den muon, broker tuong thiet bi chet va phat
-  // Last Will. Chi bat lai khi chuyen sang chay pin.
-  WiFi.setSleep(false);
-
-  WiFi.setAutoReconnect(true);
-
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  Serial.print("Dang noi Wi-Fi");
-  unsigned long start = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - start < 20000)
+  switch (esp_sleep_get_wakeup_cause())
   {
-    delay(300);
-    Serial.print('.');
+  case ESP_SLEEP_WAKEUP_TIMER:
+    return "het gio hen (nhip bao)";
+  case ESP_SLEEP_WAKEUP_GPIO:
+    return "cua doi trang thai";
+  default:
+    return "cap dien hoac reset";
   }
-  Serial.println();
-
-  if (WiFi.status() == WL_CONNECTED)
-  {
-    Serial.printf("Da noi. IP %s, RSSI %d dBm\n",
-                  WiFi.localIP().toString().c_str(), WiFi.RSSI());
-  }
-  else
-  {
-    Serial.println("Khong noi duoc Wi-Fi, se thu lai trong loop.");
-  }
-}
-
-static void syncClock()
-{
-  configTime(7 * 3600, 0, "pool.ntp.org", "time.google.com");
-
-  Serial.print("Dang dong bo dong ho");
-  time_t now = 0;
-  int tries = 0;
-  while (now < 1700000000 && tries < 20)
-  {
-    delay(500);
-    Serial.print('.');
-    time(&now);
-    tries++;
-  }
-  Serial.println();
-  Serial.printf(now < 1700000000 ? "Chua dong bo duoc, backend se tu dat moc.\n"
-                                 : "Dong ho da dong bo.\n");
-}
-
-static void connectMqtt()
-{
-  mqtt.setServer(MQTT_HOST, MQTT_PORT);
-
-  mqtt.setKeepAlive(60);
-  mqtt.setSocketTimeout(30);
-
-  while (!mqtt.connected() && WiFi.status() == WL_CONNECTED)
-  {
-    Serial.print("Dang noi MQTT broker... ");
-
-    bool ok = mqtt.connect(
-        DEVICE_ID,
-        NULL, NULL,
-        TOPIC_STATUS,
-        1,
-        true,
-        "offline");
-
-    if (ok)
-    {
-      Serial.println("thanh cong.");
-      mqtt.publish(TOPIC_STATUS, "online", true);
-    }
-    else
-    {
-      Serial.printf("that bai, ma loi %d. Thu lai sau 3 giay.\n", mqtt.state());
-      delay(3000);
-    }
-  }
-}
-
-static void publishState(int level)
-{
-  JsonDocument doc;
-  doc["device_id"] = DEVICE_ID;
-  doc["label"] = DEVICE_LABEL;
-  doc["state"] = (level == HIGH) ? "OPEN" : "CLOSED";
-  doc["rssi"] = WiFi.RSSI();
-  doc["boot_count"] = bootCount;
-
-  time_t now = time(nullptr);
-  if (now > 1700000000)
-  {
-    doc["ts"] = (uint32_t)now;
-  }
-
-  char payload[256];
-  size_t n = serializeJson(doc, payload, sizeof(payload));
-
-  bool ok = mqtt.publish(TOPIC_STATE, (const uint8_t *)payload, n, false);
-  Serial.printf("%s -> %s\n", ok ? "GUI" : "LOI", payload);
 }
 
 void setup()
 {
-  Serial.begin(115200);
-  delay(200);
+  gpio_hold_dis((gpio_num_t)REED_PIN); // nha khoa con lai tu giac ngu truoc
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW); // den sang = dang thuc
+  pinMode(REED_PIN, INPUT);   // van dung dien tro keo len ngoai 1 MOhm
+  pinMode(BOOT_PIN, INPUT_PULLUP);
   bootCount++;
 
-  pinMode(REED_PIN, INPUT_PULLUP);
+  Serial.begin(115200);
+  delay(2000); // cho may tinh nhan lai cong USB sau khi thuc
 
-  stableState = digitalRead(REED_PIN);
-  lastRawRead = stableState;
-  lastChangeMs = millis();
+  Serial.printf("\n#%lu  ly do: %s\n", bootCount, lyDo());
+  Serial.printf("Chan danh thuc: 0x%llx\n", esp_sleep_get_gpio_wakeup_status());
 
-  Serial.printf("\n=== Cam bien cua [%s] khoi dong lan %u ===\n", DEVICE_ID, bootCount);
-  Serial.printf("Trang thai ban dau: %s\n", stableState == HIGH ? "OPEN" : "CLOSED");
+  // Loi thoat: dang giu nut BOOT thi khong ngu, de nap code moi
+  if (digitalRead(BOOT_PIN) == LOW)
+  {
+    Serial.println("Dang giu BOOT -> khong ngu. Nap code moi duoc.");
+    while (true)
+    {
+      digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+      delay(100);
+    }
+  }
 
-  connectWifi();
-  syncClock();
-  connectMqtt();
+  bool dong = (digitalRead(REED_PIN) == LOW);
+  Serial.printf("Cua %s -> hen thuc khi chan len %s\n",
+                dong ? "DONG" : "MO", dong ? "CAO" : "THAP");
 
-  publishState(stableState);
-  lastHeartbeat = millis();
-  lastHealthyMs = millis();
+  esp_sleep_enable_timer_wakeup((uint64_t)SLEEP_SEC * 1000000ULL);
+
+  // 1) Chan gia GPIO 5 (khong noi gi): bat che do danh thuc bang GPIO cua IDF.
+  //    IDF se bat keo xuong cho chan nay -> no luon o muc THAP, khong bao gio danh thuc nham.
+  esp_deep_sleep_enable_gpio_wakeup(BIT(5), ESP_GPIO_WAKEUP_GPIO_HIGH);
+
+  // 2) Chan that GPIO 4: dang ky truc tiep, khong qua IDF -> chi con dien tro 1 MOhm ben ngoai
+  gpio_pullup_dis((gpio_num_t)REED_PIN);
+  gpio_pulldown_dis((gpio_num_t)REED_PIN);
+  gpio_deep_sleep_wakeup_enable((gpio_num_t)REED_PIN,
+                                dong ? GPIO_INTR_HIGH_LEVEL : GPIO_INTR_LOW_LEVEL);
+  gpio_hold_en((gpio_num_t)REED_PIN); // giu nguyen cau hinh nay suot giac ngu
+
+  Serial.printf("Di ngu %d giay (da thuc %lu ms)\n", SLEEP_SEC, millis());
+  Serial.flush();
+  digitalWrite(LED_PIN, HIGH);
+  esp_deep_sleep_start();
 }
 
-void loop()
-{
-  if (WiFi.status() != WL_CONNECTED)
-  {
-    connectWifi();
-  }
-  if (!mqtt.connected())
-  {
-    connectMqtt();
-  }
-  mqtt.loop();
-
-  int raw = digitalRead(REED_PIN);
-
-  if (raw != lastRawRead)
-  {
-    lastRawRead = raw;
-    lastChangeMs = millis();
-  }
-
-  if (raw != stableState && (millis() - lastChangeMs) >= DEBOUNCE_MS)
-  {
-    stableState = raw;
-    Serial.printf("Cua %s\n", stableState == HIGH ? "MO" : "DONG");
-    publishState(stableState);
-    lastHeartbeat = millis();
-  }
-
-  if (millis() - lastHeartbeat >= HEARTBEAT_MS)
-  {
-    publishState(stableState);
-    lastHeartbeat = millis();
-  }
-
-  if (mqtt.connected() && WiFi.status() == WL_CONNECTED)
-  {
-    lastHealthyMs = millis();
-  }
-  else if (millis() - lastHealthyMs > RECOVERY_TIMEOUT_MS)
-  {
-    Serial.println("Mat ket noi qua lau, khoi dong lai.");
-    delay(100);
-    ESP.restart();
-  }
-
-  delay(10);
-}
+void loop() {} // khong bao gio chay toi
