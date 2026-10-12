@@ -21,9 +21,20 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledFuture;
+import org.springframework.scheduling.TaskScheduler;
 
 @Service
 public class DoorService {
+
+    private static final Duration OFFLINE_NOTIFY_GRACE = Duration.ofSeconds(120);
+
+    private final TaskScheduler scheduler;
+    private final Map<String, ScheduledFuture<?>> pendingOfflineNotify = new ConcurrentHashMap<>();
+    private final Set<String> offlineNotified = ConcurrentHashMap.newKeySet();
 
     private static final Logger log = LoggerFactory.getLogger(DoorService.class);
 
@@ -42,12 +53,14 @@ public class DoorService {
                        DoorEventRepository eventRepo,
                        ConnectivityEventRepository connRepo,
                        RealtimeHandler realtime,
-                       NotificationService notifier) {
+                       NotificationService notifier,
+                       TaskScheduler scheduler) {
         this.deviceRepo = deviceRepo;
         this.eventRepo = eventRepo;
         this.connRepo = connRepo;
         this.realtime = realtime;
         this.notifier = notifier;
+        this.scheduler = scheduler;
     }
 
     @Transactional
@@ -132,13 +145,17 @@ public class DoorService {
             deviceRepo.save(device);
             return;
         }
+        ScheduledFuture<?> pending = pendingOfflineNotify.remove(deviceId);
+        if (pending != null) pending.cancel(false);
+        boolean wasNotified = offlineNotified.remove(deviceId);
+
         device.setOnline(true);
         device.setLastSeen(Instant.now());
         deviceRepo.save(device);
         connRepo.save(new ConnectivityEvent(deviceId, true, ConnectivityEvent.Source.REPORTED));
         log.info("{} da len mang", deviceId);
         broadcastAfterCommit(RealtimeMessage.device(DeviceStatusDto.from(device)));
-        afterCommit(() -> notifier.onDeviceOnline(device));
+        if (wasNotified) afterCommit(() -> notifier.onDeviceOnline(device));
     }
 
     @Transactional
@@ -161,7 +178,13 @@ public class DoorService {
             connRepo.save(new ConnectivityEvent(deviceId, false, source));
             log.warn("{} mat lien lac (phat hien boi {})", deviceId, source);
             broadcastAfterCommit(RealtimeMessage.device(DeviceStatusDto.from(device)));
-            afterCommit(() -> notifier.onDeviceOffline(device, source.name()));
+            if (source == ConnectivityEvent.Source.LWT) {
+                afterCommit(() -> scheduleOfflineNotify(device, source.name()));
+            } else {
+                // watchdog da cho du nguong, bao ngay
+                offlineNotified.add(deviceId);
+                afterCommit(() -> notifier.onDeviceOffline(device, source.name()));
+            }
         });
     }
 
@@ -197,5 +220,19 @@ public class DoorService {
 
     private String defaultLabel(String deviceId, DevicePayload payload) {
         return (payload.label() != null && !payload.label().isBlank()) ? payload.label() : deviceId;
+    }
+
+    private void scheduleOfflineNotify(Device device, String source) {
+        String id = device.getId();
+        ScheduledFuture<?> f = scheduler.schedule(() -> {
+            pendingOfflineNotify.remove(id);
+            boolean stillOffline = deviceRepo.findById(id).map(d -> !d.isOnline()).orElse(false);
+            if (stillOffline) {
+                offlineNotified.add(id);
+                notifier.onDeviceOffline(device, source);
+            }
+        }, Instant.now().plus(OFFLINE_NOTIFY_GRACE));
+        ScheduledFuture<?> old = pendingOfflineNotify.put(id, f);
+        if (old != null) old.cancel(false);
     }
 }

@@ -36,7 +36,7 @@ app:
     connection-timeout-seconds: 10
     keep-alive-seconds: 30
   device:
-    offline-after-seconds: 900
+    offline-after-seconds: 840
     watchdog-interval-ms: 30000
   cors:
     allowed-origins: 'http://localhost:5173,http://localhost:4173'
