@@ -41,6 +41,12 @@ app:
   cors:
     allowed-origins: 'http://localhost:5173,http://localhost:4173'
 
+  # Du lieu moi truong (AHT20 tren node coi). Client MQTT rieng, broker dung chung app.mqtt.
+  env:
+    enabled: true
+    telemetry-topic: home/env/+/telemetry
+    qos: 1
+
   notify:
     enabled: false
 
