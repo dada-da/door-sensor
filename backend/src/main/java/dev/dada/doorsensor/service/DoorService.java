@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.TaskScheduler;
 
 @Service
@@ -48,19 +49,22 @@ public class DoorService {
     private final ConnectivityEventRepository connRepo;
     private final RealtimeHandler realtime;
     private final NotificationService notifier;
+    private final ApplicationEventPublisher events;
 
     public DoorService(DeviceRepository deviceRepo,
                        DoorEventRepository eventRepo,
                        ConnectivityEventRepository connRepo,
                        RealtimeHandler realtime,
                        NotificationService notifier,
-                       TaskScheduler scheduler) {
+                       TaskScheduler scheduler,
+                       ApplicationEventPublisher events) {
         this.deviceRepo = deviceRepo;
         this.eventRepo = eventRepo;
         this.connRepo = connRepo;
         this.realtime = realtime;
         this.notifier = notifier;
         this.scheduler = scheduler;
+        this.events = events;
     }
 
     @Transactional
@@ -77,7 +81,8 @@ public class DoorService {
         Device device = deviceRepo.findById(deviceId)
                 .orElseGet(() -> deviceRepo.save(new Device(deviceId, defaultLabel(deviceId, payload))));
 
-        boolean isTransition = device.getLastState() == null || device.getLastState() != state;
+        boolean firstReport = device.getLastState() == null;
+        boolean isTransition = firstReport || device.getLastState() != state;
 
         if (!isTransition) {
             applyTelemetry(device, payload, receivedAt);
@@ -117,6 +122,14 @@ public class DoorService {
         deviceRepo.save(device);
 
         log.info("{} -> {} (tre {} ms)", deviceId, state, event.getLagMs());
+
+        // Cho cac phan bo sung (bao dong). Phat sau commit, ben nghe chay tren luong
+        // rieng, nen khong lam cham hay lam hong duong ghi du lieu ben tren. Dang ky
+        // truoc cac callback khac vi callback chay theo thu tu dang ky, ma day day
+        // WebSocket dong bo: bao dong la viec nhay cam nhat voi do tre (PCN-08).
+        DoorTransitionEvent transition = new DoorTransitionEvent(
+                deviceId, device.getLabel(), state, occurredAt, firstReport);
+        afterCommit(() -> events.publishEvent(transition));
 
         broadcastAfterCommit(RealtimeMessage.door(
                 DeviceStatusDto.from(device), EventDto.from(event)));

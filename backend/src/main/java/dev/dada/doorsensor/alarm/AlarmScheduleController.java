@@ -3,6 +3,7 @@ package dev.dada.doorsensor.alarm;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,10 +26,13 @@ public class AlarmScheduleController {
 
     private final AlarmScheduleRepository repo;
     private final AlarmDecisionService decisions;
+    private final ApplicationEventPublisher events;
 
-    public AlarmScheduleController(AlarmScheduleRepository repo, AlarmDecisionService decisions) {
+    public AlarmScheduleController(AlarmScheduleRepository repo, AlarmDecisionService decisions,
+                                   ApplicationEventPublisher events) {
         this.repo = repo;
         this.decisions = decisions;
+        this.events = events;
     }
 
     public record ScheduleView(
@@ -67,7 +71,10 @@ public class AlarmScheduleController {
                 .map(DayOfWeek::of)
                 .collect(Collectors.toSet()));
         s.setUpdatedAt(Instant.now());
-        return toView(repo.save(s));
+        ScheduleView view = toView(repo.save(s));
+        // AlarmService nghe sau khi giao dich commit, cap nhat home/alarm/armed ngay.
+        events.publishEvent(new AlarmMessages.ScheduleChanged(false));
+        return view;
     }
 
     /** Bat bao ve ngay, het hieu luc o ranh gioi khung gio ke tiep. */
@@ -92,7 +99,9 @@ public class AlarmScheduleController {
         s.setOverrideMode(AlarmSchedule.Override.NONE);
         s.setOverrideUntil(null);
         s.setUpdatedAt(Instant.now());
-        return toView(repo.save(s));
+        ScheduleView view = toView(repo.save(s));
+        events.publishEvent(new AlarmMessages.ScheduleChanged(false));
+        return view;
     }
 
     private ScheduleView applyOverride(AlarmSchedule.Override mode) {
@@ -102,7 +111,10 @@ public class AlarmScheduleController {
         // la loi thuong gap nhat cua he thong bao dong that.
         s.setOverrideUntil(decisions.overrideExpiry(s).toInstant());
         s.setUpdatedAt(Instant.now());
-        return toView(repo.save(s));
+        ScheduleView view = toView(repo.save(s));
+        // Tat bao ve trong luc coi dang keu thi AlarmService tat luon coi.
+        events.publishEvent(new AlarmMessages.ScheduleChanged(mode == AlarmSchedule.Override.DISARMED));
+        return view;
     }
 
     private ScheduleView toView(AlarmSchedule s) {

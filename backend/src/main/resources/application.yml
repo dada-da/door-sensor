@@ -47,6 +47,20 @@ app:
     telemetry-topic: home/env/+/telemetry
     qos: 1
 
+  # Bao dong chay that. Lich bao ve nam trong bang alarm_schedule, khong o day.
+  alarm:
+    enabled: true
+    siren-id: siren-01
+    qos: 1
+    # Firmware coi gui nhip bao (state) moi 60 giay. Gap 5 lan de chiu duoc vai lan mat goi.
+    siren-offline-after-seconds: 300
+    # Cho them truoc khi gui Telegram, chong bao nham khi nhay diem phat Wi-Fi.
+    siren-offline-grace-seconds: 60
+    ack-timeout-seconds: 10
+    tick-ms: 10000
+    # Tu thu coi moi ngay, "-" la tat. Vi du 18h55 hang ngay: '0 55 18 * * *'
+    self-test-cron: '-'
+
   notify:
     enabled: false
 
