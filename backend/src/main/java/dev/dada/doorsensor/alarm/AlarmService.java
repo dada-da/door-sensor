@@ -58,6 +58,7 @@ public class AlarmService {
     private final AlarmEventRepository eventRepo;
     private final SirenConnectivityEventRepository connRepo;
     private final DeviceRepository deviceRepo;
+    private final AlarmDoorRuleRepository doorRules;
     private final SirenLink link;
     private final AlarmNotifier notifier;
     private final ObjectMapper objectMapper;
@@ -80,6 +81,7 @@ public class AlarmService {
                         AlarmEventRepository eventRepo,
                         SirenConnectivityEventRepository connRepo,
                         DeviceRepository deviceRepo,
+                        AlarmDoorRuleRepository doorRules,
                         SirenLink link,
                         AlarmNotifier notifier,
                         ObjectMapper objectMapper,
@@ -90,6 +92,7 @@ public class AlarmService {
         this.eventRepo = eventRepo;
         this.connRepo = connRepo;
         this.deviceRepo = deviceRepo;
+        this.doorRules = doorRules;
         this.link = link;
         this.notifier = notifier;
         this.objectMapper = objectMapper;
@@ -138,6 +141,12 @@ public class AlarmService {
         Instant now = clock.instant();
 
         // Mac dinh im lang khi khong chac chan (muc 3.10.5).
+        // Nguoi dung tat coi rieng cho cua nay (/api/alarm/doors). Telegram mo cua
+        // thong thuong van do NotificationService gui, khong lien quan o day.
+        if (!doorRules.sirenEnabled(e.deviceId())) {
+            log.info("[alarm] Bo qua {}: cua nay khong kich hoat coi", e.deviceId());
+            return;
+        }
         if (e.firstReport()) {
             log.info("[alarm] Bo qua {}: tin dau tien, khong biet cua vua mo hay da mo tu truoc", e.deviceId());
             return;
@@ -464,6 +473,8 @@ public class AlarmService {
     private void remindOpenDoors() {
         List<String> open = deviceRepo.findAllByOrderByLabelAsc().stream()
                 .filter(d -> d.getLastState() == dev.dada.doorsensor.domain.DoorState.OPEN)
+                // Cua khong kich hoat coi thi mo hay dong cung khong anh huong bao ve.
+                .filter(d -> doorRules.sirenEnabled(d.getId()))
                 .map(Device::getLabel)
                 .toList();
         if (!open.isEmpty()) {

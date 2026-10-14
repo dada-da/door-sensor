@@ -120,6 +120,7 @@ class AlarmServiceTest {
     final Map<Long, AlarmEvent> events = new LinkedHashMap<>();
     final List<SirenConnectivityEvent> conn = new ArrayList<>();
     final List<Device> devices = new ArrayList<>();
+    final Map<String, Boolean> doorRules = new LinkedHashMap<>();
     final FakeLink link = new FakeLink();
     final RecordingNotifier notifier = new RecordingNotifier();
     long seq;
@@ -166,9 +167,15 @@ class AlarmServiceTest {
             throw new UnsupportedOperationException(name);
         });
 
+        // Proxy chan ca phuong thuc default cua interface, nen phai tu cai sirenEnabled.
+        AlarmDoorRuleRepository ruleRepo = fakeRepo(AlarmDoorRuleRepository.class, (name, a) -> switch (name) {
+            case "sirenEnabled" -> doorRules.getOrDefault((String) a[0], true);
+            default -> throw new UnsupportedOperationException(name);
+        });
+
         AlarmProperties props = new AlarmProperties(true, SIREN, 1, 300, 60, 10, "-");
         service = new AlarmService(props, scheduleRepo, new AlarmDecisionService(clock), eventRepo,
-                connRepo, deviceRepo, link, notifier, new ObjectMapper(), clock);
+                connRepo, deviceRepo, ruleRepo, link, notifier, new ObjectMapper(), clock);
         return service;
     }
 
@@ -269,6 +276,31 @@ class AlarmServiceTest {
         assertNull(row.getStopSource());
         assertEquals(List.of("intrusion:Cua door-02:30:fail"), notifier.sent);
         assertFalse(service.status().sirenActive());
+    }
+
+    @Test
+    @DisplayName("Cua bi tat coi rieng: khong keu, khong BAO DONG. Cua khac van keu")
+    void tatCoiRiengMotCua() {
+        given(3, 0, 0);
+        doorRules.put("door-01", false);
+
+        service.handleDoorTransition(opened("door-01"));
+        assertTrue(link.sent.isEmpty());
+        assertTrue(events.isEmpty());
+        assertTrue(notifier.sent.isEmpty());
+
+        service.handleDoorTransition(opened("door-02"));
+        assertEquals(1, link.sent.size());
+        assertEquals("door-02", onlyEvent().getDeviceId());
+    }
+
+    @Test
+    @DisplayName("Cua chua cau hinh thi mac dinh kich hoat coi")
+    void macDinhKichHoat() {
+        given(3, 0, 0);
+        doorRules.put("door-01", false);
+        service.handleDoorTransition(opened("door-99"));
+        assertEquals(1, link.sent.size());
     }
 
     // ------------------------------------------------------------- dung coi
@@ -399,6 +431,10 @@ class AlarmServiceTest {
         door.setLastState(dev.dada.doorsensor.domain.DoorState.OPEN);
         devices.add(door);
         devices.add(new Device("door-02", "Cua tang 2"));
+        Device door3 = new Device("door-03", "Cua phu");
+        door3.setLastState(dev.dada.doorsensor.domain.DoorState.OPEN);
+        devices.add(door3);
+        doorRules.put("door-03", false);   // tat coi: mo san cung khong can nhac
 
         given(23, 59, 50);
         service.tick();
