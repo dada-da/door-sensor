@@ -28,6 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
  * GET /api/stats/opens?days=7&unit=day              cot so lan mo, tach tung cua
  * GET /api/stats/heatmap?days=28&deviceId=          o so lan mo theo thu x gio
  * GET /api/stats/state-share?days=7                 tron ti le thoi gian mo/dong
+ * GET /api/stats/device?deviceId=door-02&hours=168  pin, thoi gian thuc (phan pin)
  * </pre>
  *
  * Khong dung chung DoorController: DoorController thuoc phan co tu truoc T0,
@@ -68,6 +69,18 @@ public class StatsController {
     }
 
     public record StateShare(String deviceId, String label, double openSeconds, double closedSeconds) {
+    }
+
+    public record DevicePoint(Instant bucket, Double battAvg, Integer battMin, Integer battMax,
+                              Double workMsAvg, Double rssiAvg, long wakes) {
+    }
+
+    public record DeviceSummary(Instant firstAt, Instant lastAt, long wakes, Double workMsAvg,
+                                Double workMsP50, Double workMsP95, Integer battLastMv) {
+    }
+
+    public record DeviceSeries(String deviceId, int hours, String step, DeviceSummary summary,
+                               List<DevicePoint> points) {
     }
 
     // ------------------------------------------------------------------ API
@@ -177,6 +190,44 @@ public class StatsController {
                 .map(e -> new StateShare(e.getKey(), labels.getOrDefault(e.getKey(), e.getKey()),
                         Math.round(e.getValue()[0]), Math.round(e.getValue()[1])))
                 .toList();
+    }
+
+    /**
+     * Phan pin: duong xa pin cua thu nghiem tang toc va thoi gian thuc moi lan.
+     * Cung cach chia buoc voi /env, toi da 31 ngay.
+     */
+    @GetMapping("/device")
+    public DeviceSeries device(@RequestParam String deviceId,
+                               @RequestParam(defaultValue = "168") int hours) {
+        int h = Math.min(Math.max(hours, 1), 24 * 31);
+        String step = h <= 24 ? "10 minutes" : h <= 72 ? "30 minutes" : h <= 24 * 14 ? "2 hours" : "6 hours";
+        MapSqlParameterSource p = new MapSqlParameterSource()
+                .addValue("step", step)
+                .addValue("from", Timestamp.from(Instant.now().minus(Duration.ofHours(h))))
+                .addValue("deviceId", deviceId);
+
+        List<DevicePoint> points = jdbc.query(StatsQueries.DEVICE_SERIES, p, (rs, i) -> new DevicePoint(
+                rs.getTimestamp("bucket").toInstant(),
+                round(rs.getObject("batt_avg", Double.class), 0),
+                rs.getObject("batt_min", Integer.class),
+                rs.getObject("batt_max", Integer.class),
+                round(rs.getObject("work_avg", Double.class), 0),
+                round(rs.getObject("rssi_avg", Double.class), 1),
+                rs.getLong("wakes")));
+
+        DeviceSummary summary = jdbc.queryForObject(StatsQueries.DEVICE_SUMMARY, p, (rs, i) -> {
+            Timestamp first = rs.getTimestamp("first_at");
+            Timestamp last = rs.getTimestamp("last_at");
+            return new DeviceSummary(
+                    first == null ? null : first.toInstant(),
+                    last == null ? null : last.toInstant(),
+                    rs.getLong("wakes"),
+                    round(rs.getObject("work_avg", Double.class), 0),
+                    round(rs.getObject("work_p50", Double.class), 0),
+                    round(rs.getObject("work_p95", Double.class), 0),
+                    rs.getObject("batt_last", Integer.class));
+        });
+        return new DeviceSeries(deviceId, h, step, summary, points);
     }
 
     // ------------------------------------------------------------------

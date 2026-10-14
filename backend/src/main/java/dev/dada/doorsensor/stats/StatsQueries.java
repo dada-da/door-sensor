@@ -99,4 +99,40 @@ final class StatsQueries {
             GROUP BY device_id, state
             ORDER BY device_id, state
             """;
+
+    /**
+     * Pin va thoi gian thuc theo khoang, tu device_telemetry (moi lan thuc mot dong).
+     * Pin chi tinh tren dong co battery_mv; work_ms chi co nghia khi firmware tat
+     * DEBUG_SERIAL, nhung loc o phia doc so lieu, khong loc o day.
+     */
+    static final String DEVICE_SERIES = """
+            SELECT date_bin(CAST(:step AS interval), received_at, make_timestamptz(2000, 1, 1, 0, 0, 0, 'Asia/Ho_Chi_Minh')) AS bucket,
+                   CAST(AVG(battery_mv) AS DOUBLE PRECISION) AS batt_avg,
+                   MIN(battery_mv) AS batt_min,
+                   MAX(battery_mv) AS batt_max,
+                   CAST(AVG(work_ms) AS DOUBLE PRECISION) AS work_avg,
+                   CAST(AVG(rssi) AS DOUBLE PRECISION) AS rssi_avg,
+                   COUNT(*)        AS wakes
+            FROM device_telemetry
+            WHERE device_id = :deviceId
+              AND received_at >= :from
+            GROUP BY bucket
+            ORDER BY bucket
+            """;
+
+    /** Tong ket cho thu nghiem tang toc: lan thuc dau, cuoi, so lan, thoi gian thuc. */
+    static final String DEVICE_SUMMARY = """
+            SELECT MIN(received_at) AS first_at,
+                   MAX(received_at) AS last_at,
+                   COUNT(*)         AS wakes,
+                   CAST(AVG(work_ms) AS DOUBLE PRECISION) AS work_avg,
+                   percentile_cont(0.5)  WITHIN GROUP (ORDER BY work_ms) AS work_p50,
+                   percentile_cont(0.95) WITHIN GROUP (ORDER BY work_ms) AS work_p95,
+                   (SELECT battery_mv FROM device_telemetry t2
+                     WHERE t2.device_id = :deviceId AND t2.received_at >= :from AND t2.battery_mv IS NOT NULL
+                     ORDER BY t2.received_at DESC LIMIT 1) AS batt_last
+            FROM device_telemetry
+            WHERE device_id = :deviceId
+              AND received_at >= :from
+            """;
 }

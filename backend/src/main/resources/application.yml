@@ -47,6 +47,13 @@ app:
     telemetry-topic: home/env/+/telemetry
     qos: 1
 
+  # Nhat ky moi lan thuc cua thiet bi cua (pin, work_ms, RSSI) vao device_telemetry.
+  # Client MQTT rieng, doc chung chu de voi duong nhan nhung khong dung toi DoorService.
+  telemetry:
+    enabled: true
+    state-topic: home/door/+/state
+    qos: 1
+
   # Bao dong chay that. Lich bao ve nam trong bang alarm_schedule, khong o day.
   alarm:
     enabled: true
