@@ -217,7 +217,10 @@ public class TelegramAlarmControl {
             case "OFFLINE" -> "mất liên lạc";
             default -> "chưa rõ";
         };
-        return "<b>%s</b>\nCòi: %s%s".formatted(level, siren, s.sirenActive() ? ", <b>đang kêu</b>" : "");
+        String off = s.disabledDoors() == null || s.disabledDoors().isEmpty()
+                ? ""
+                : "\nĐang tắt báo động: " + TelegramClient.escape(String.join(", ", s.disabledDoors()));
+        return "<b>%s</b>\nCòi: %s%s%s".formatted(level, siren, s.sirenActive() ? ", <b>đang kêu</b>" : "", off);
     }
 
     private static void sleep(long ms) {

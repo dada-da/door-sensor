@@ -446,7 +446,11 @@ public class AlarmService {
                 health.link().name(),
                 health.lastSeen(),
                 active,
-                active ? activeUntil : null);
+                active ? activeUntil : null,
+                deviceRepo.findAllByOrderByLabelAsc().stream()
+                        .filter(d -> !doorRules.effective(d.getId()).isSirenEnabled())
+                        .map(Device::getLabel)
+                        .toList());
     }
 
     // ================================================================ noi bo

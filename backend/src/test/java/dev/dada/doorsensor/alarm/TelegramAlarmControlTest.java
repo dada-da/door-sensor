@@ -56,7 +56,7 @@ class TelegramAlarmControlTest {
 
                 @Override public AlarmStatusDto status() {
                     return new AlarmStatusDto(true, true, "ARMED_SIREN_OFFLINE", "siren-01",
-                            "OFFLINE", null, false, null);
+                            "OFFLINE", null, false, null, List.of("Cửa tầng 1"));
                 }
             },
             om, Clock.fixed(NOW, ZoneId.of("Asia/Ho_Chi_Minh")), RestClient.builder(), true);
@@ -130,6 +130,7 @@ class TelegramAlarmControlTest {
     void trangThai() throws Exception {
         assertEquals(TelegramAlarmControl.Outcome.STATUS, control.handleUpdate(message(OUR_CHAT, "/trangthai", NOW)));
         assertTrue(telegram.replies.get(0).contains("MẤT LIÊN LẠC"));
+        assertTrue(telegram.replies.get(0).contains("Đang tắt báo động: Cửa tầng 1"), "nhac cua dang tat");
         assertEquals(0, stops);
     }
 

@@ -34,9 +34,9 @@ public class AlarmDecisionService {
     public boolean isArmed(ArmingRule rule) {
         ZonedDateTime now = ZonedDateTime.now(clock);
 
+        // Han null nghia la vo thoi han: che do "Luon bao ve" tren giao dien (14/10).
         if (rule.getOverrideMode() != AlarmSchedule.Override.NONE
-                && rule.getOverrideUntil() != null
-                && now.toInstant().isBefore(rule.getOverrideUntil())) {
+                && (rule.getOverrideUntil() == null || now.toInstant().isBefore(rule.getOverrideUntil()))) {
             return rule.getOverrideMode() == AlarmSchedule.Override.ARMED;
         }
         return rule.toWindow().contains(now);

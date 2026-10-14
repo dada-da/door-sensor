@@ -1,11 +1,15 @@
-import type { DoorEvent } from '../types'
+import type { DeviceStatus, DoorEvent } from '../types'
 import { clockTime, dateTime, durationMs, volts } from '../format'
 
 interface Props {
   events: DoorEvent[]
+  /** De doi ma thiet bi ra ten cua. Thieu thi hien ma. */
+  devices?: DeviceStatus[]
 }
 
-export function EventLog({ events }: Props) {
+export function EventLog({ events, devices = [] }: Props) {
+  const label = (id: string) => devices.find((d) => d.id === id)?.label ?? id
+
   if (events.length === 0) {
     return (
       <p className="log-empty">
@@ -20,6 +24,7 @@ export function EventLog({ events }: Props) {
       <thead>
         <tr>
           <th>Thời điểm</th>
+          <th>Cửa</th>
           <th>Trạng thái</th>
           <th className="log-num">Kéo dài trước đó</th>
           <th className="log-num log-secondary">Độ trễ</th>
@@ -30,6 +35,7 @@ export function EventLog({ events }: Props) {
         {events.map((e) => (
           <tr key={e.id}>
             <td title={dateTime(e.occurredAt)}>{clockTime(e.occurredAt)}</td>
+            <td className="log-door" title={e.deviceId}>{label(e.deviceId)}</td>
             <td>
               <span className={`log-state${e.state === 'OPEN' ? ' is-open' : ''}`}>
                 {e.state === 'OPEN' ? 'Mở' : 'Đóng'}

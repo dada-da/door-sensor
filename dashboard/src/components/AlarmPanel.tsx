@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { clockTime, dateTime } from '../format';
-import type { AlarmLevel, AlarmSettings, AlarmStatus, DoorRule, DoorRuleUpdate } from '../types';
+import { clockTime } from '../format';
+import type { AlarmLevel, AlarmSettings, AlarmStatus, DoorMode, DoorRule, DoorRuleUpdate } from '../types';
 
 type Run = (action: () => Promise<unknown>) => Promise<string | null>;
 
@@ -32,8 +32,8 @@ export function AlarmPanel({ status, doors, settings, error, run }: Props) {
     <section className="section">
       <h2 className="section-title">Báo động</h2>
       <p className="section-note">
-        Mỗi cửa có khung giờ bảo vệ riêng. Trong khung giờ, cửa được bật báo động mà mở thì còi kêu.
-        Tin Telegram mở cửa trong khung giờ được ghi là ngoài giờ thường lệ.
+        Mỗi cửa có chế độ riêng: tắt, theo khung giờ, hoặc luôn bật. Cửa đang được bảo vệ mà mở thì còi kêu.
+        Tin Telegram mở cửa trong khung giờ của cửa được ghi là ngoài giờ thường lệ.
       </p>
 
       {error && <p className="notice"><span className="notice-strong">{error}</span></p>}
@@ -114,6 +114,11 @@ function Banner({ status }: { status: AlarmStatus }) {
         Còi {status.sirenId}: {siren}
         {status.sirenLastSeen && <> &nbsp;·&nbsp; tin gần nhất {clockTime(status.sirenLastSeen)}</>}
       </span>
+      {status.disabledDoors.length > 0 && (
+        <span className="alarm-banner-sub">
+          Đang tắt báo động: <strong>{status.disabledDoors.join(', ')}</strong>
+        </span>
+      )}
       {status.level === 'ARMED_SIREN_OFFLINE' && (
         <span className="alarm-banner-sub">
           Hệ thống đang bảo vệ nhưng còi sẽ không kêu được. Kiểm tra nguồn và Wi-Fi của node còi.
@@ -166,7 +171,6 @@ const DAYS: Array<[number, string]> = [
 const hhmm = (t: string) => t.slice(0, 5);
 
 interface Draft {
-  sirenEnabled: boolean;
   startTime: string;
   endTime: string;
   days: number[];
@@ -174,7 +178,6 @@ interface Draft {
 
 function fromRule(r: DoorRule): Draft {
   return {
-    sirenEnabled: r.sirenEnabled,
     startTime: hhmm(r.startTime),
     endTime: hhmm(r.endTime),
     days: [...r.days].sort(),
@@ -182,13 +185,14 @@ function fromRule(r: DoorRule): Draft {
 }
 
 function sameDraft(a: Draft, b: Draft): boolean {
-  return (
-    a.sirenEnabled === b.sirenEnabled &&
-    a.startTime === b.startTime &&
-    a.endTime === b.endTime &&
-    a.days.join(',') === b.days.join(',')
-  );
+  return a.startTime === b.startTime && a.endTime === b.endTime && a.days.join(',') === b.days.join(',');
 }
+
+const MODES: Array<[DoorMode, string]> = [
+  ['OFF', 'Tắt'],
+  ['SCHEDULE', 'Theo lịch'],
+  ['ALWAYS', 'Luôn bật'],
+];
 
 function DoorRuleCard({
   rule,
@@ -208,7 +212,13 @@ function DoorRuleCard({
 
   const save = () => {
     const u: DoorRuleUpdate = { ...draft };
-    void act(() => api.saveDoorRule(rule.deviceId, u), `Đã lưu ${rule.label}`);
+    void act(() => api.saveDoorRule(rule.deviceId, u), `Đã lưu khung giờ ${rule.label}`);
+  };
+
+  const setMode = (m: DoorMode) => {
+    if (m === rule.mode) return;
+    const text = { OFF: 'đã tắt báo động', SCHEDULE: 'báo động theo lịch', ALWAYS: 'luôn bảo vệ' }[m];
+    void act(() => api.setDoorMode(rule.deviceId, m), `${rule.label}: ${text}`);
   };
 
   const wraps = draft.startTime > draft.endTime;
@@ -220,7 +230,7 @@ function DoorRuleCard({
     }));
 
   return (
-    <article className={`door-rule${rule.armedNow ? ' is-armed' : ''}`}>
+    <article className={`door-rule${rule.armedNow ? ' is-armed' : ''}${rule.mode === 'OFF' ? ' is-off' : ''}`}>
       <header className="door-rule-head">
         <div>
           <h4 className="door-rule-name">{rule.label}</h4>
@@ -233,93 +243,80 @@ function DoorRuleCard({
         </span>
       </header>
 
-      <label className="door-rule-switch">
-        <input
-          type="checkbox"
-          checked={draft.sirenEnabled}
-          onChange={(e) => setDraft((x) => ({ ...x, sirenEnabled: e.target.checked }))}
-        />
-        <span>Bật báo động: còi kêu khi cửa này mở trong khung giờ</span>
-      </label>
-
       <div className="door-rule-row">
-        <span className="schedule-key">Khung giờ</span>
-        <span className="time-range">
-        <input
-          type="time"
-          value={draft.startTime}
-          onChange={(e) => setDraft((x) => ({ ...x, startTime: e.target.value }))}
-          aria-label={`Giờ bắt đầu, ${rule.label}`}
-        />
-        <span aria-hidden="true">đến</span>
-        <input
-          type="time"
-          value={draft.endTime}
-          onChange={(e) => setDraft((x) => ({ ...x, endTime: e.target.value }))}
-          aria-label={`Giờ kết thúc, ${rule.label}`}
-        />
-        </span>
-      </div>
-      {wraps && <p className="door-rule-note">Khung giờ vắt qua nửa đêm, kết thúc vào sáng hôm sau.</p>}
-      {empty && (
-        <p className="door-rule-note is-alert-text">Giờ bắt đầu bằng giờ kết thúc: khung rỗng, không bao giờ bảo vệ.</p>
-      )}
-
-      <div className="door-rule-row">
-        <span className="schedule-key">Ngày</span>
-        <div className="day-chips" role="group" aria-label="Ngày khung giờ bắt đầu">
-          {DAYS.map(([n, label]) => (
+        <span className="schedule-key">Báo động</span>
+        <div className="segmented" role="radiogroup" aria-label={`Chế độ báo động, ${rule.label}`}>
+          {MODES.map(([m, label]) => (
             <button
-              key={n}
+              key={m}
               type="button"
-              className={`day-chip${draft.days.includes(n) ? ' is-on' : ''}`}
-              aria-pressed={draft.days.includes(n)}
-              onClick={() => toggleDay(n)}
+              role="radio"
+              aria-checked={rule.mode === m}
+              className={`segmented-item${rule.mode === m ? ' is-on' : ''}${m === 'OFF' ? ' is-off-item' : ''}`}
+              onClick={() => setMode(m)}
             >
               {label}
             </button>
           ))}
         </div>
       </div>
-      {wraps && draft.days.length < 7 && (
-        <p className="door-rule-note">Ngày là ngày khung giờ bắt đầu: khung T2 22:00 kéo sang sáng T3.</p>
-      )}
+      <p className="door-rule-note">{modeText(rule)}</p>
 
-      <div className="door-rule-actions">
-        <button className="btn btn-small" disabled={!dirty} onClick={save}>
-          Lưu
-        </button>
-        {dirty && (
-          <button className="btn btn-small btn-ghost" onClick={() => setDraft(saved)}>
-            Hủy
-          </button>
-        )}
-      </div>
-
-      <div className="door-rule-override">
-        <span className="schedule-key">Tạm thời</span>
-        <div className="door-rule-buttons">
-          <button
-            className={`btn btn-small${rule.overrideMode === 'ARMED' ? ' is-on' : ''}`}
-            onClick={() => act(() => api.doorOverride(rule.deviceId, 'arm'), `${rule.label}: bảo vệ ngay`)}
-          >
-            Bảo vệ ngay
-          </button>
-          <button
-            className={`btn btn-small${rule.overrideMode === 'DISARMED' ? ' is-on' : ''}`}
-            onClick={() => act(() => api.doorOverride(rule.deviceId, 'disarm'), `${rule.label}: tạm tắt`)}
-          >
-            Tạm tắt
-          </button>
-          <button
-            className={`btn btn-small${rule.overrideMode === 'NONE' ? ' is-on' : ''}`}
-            onClick={() => act(() => api.doorOverride(rule.deviceId, 'auto'), `${rule.label}: theo lịch`)}
-          >
-            Theo lịch
-          </button>
+      <fieldset className={`door-rule-schedule${rule.mode !== 'SCHEDULE' ? ' is-dim' : ''}`}>
+        <div className="door-rule-row">
+          <span className="schedule-key">Khung giờ</span>
+          <span className="time-range">
+            <input
+              type="time"
+              value={draft.startTime}
+              onChange={(e) => setDraft((x) => ({ ...x, startTime: e.target.value }))}
+              aria-label={`Giờ bắt đầu, ${rule.label}`}
+            />
+            <span aria-hidden="true">đến</span>
+            <input
+              type="time"
+              value={draft.endTime}
+              onChange={(e) => setDraft((x) => ({ ...x, endTime: e.target.value }))}
+              aria-label={`Giờ kết thúc, ${rule.label}`}
+            />
+          </span>
         </div>
-      </div>
-      <p className="door-rule-note">{overrideText(rule)}</p>
+        {wraps && <p className="door-rule-note">Khung giờ vắt qua nửa đêm, kết thúc vào sáng hôm sau.</p>}
+        {empty && (
+          <p className="door-rule-note is-alert-text">Giờ bắt đầu bằng giờ kết thúc: khung rỗng, không bao giờ bảo vệ.</p>
+        )}
+
+        <div className="door-rule-row">
+          <span className="schedule-key">Ngày</span>
+          <div className="day-chips" role="group" aria-label="Ngày khung giờ bắt đầu">
+            {DAYS.map(([n, label]) => (
+              <button
+                key={n}
+                type="button"
+                className={`day-chip${draft.days.includes(n) ? ' is-on' : ''}`}
+                aria-pressed={draft.days.includes(n)}
+                onClick={() => toggleDay(n)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {wraps && draft.days.length < 7 && (
+          <p className="door-rule-note">Ngày là ngày khung giờ bắt đầu: khung T2 22:00 kéo sang sáng T3.</p>
+        )}
+
+        <div className="door-rule-actions">
+          <button className="btn btn-small" disabled={!dirty} onClick={save}>
+            Lưu khung giờ
+          </button>
+          {dirty && (
+            <button className="btn btn-small btn-ghost" onClick={() => setDraft(saved)}>
+              Hủy
+            </button>
+          )}
+        </div>
+      </fieldset>
     </article>
   );
 }
@@ -331,11 +328,15 @@ function doorText(r: DoorRule): string {
   return 'chưa rõ';
 }
 
-function overrideText(r: DoorRule): string {
-  if (!r.sirenEnabled) return 'Báo động của cửa này đang tắt, còi không kêu dù trong khung giờ.';
-  const until = r.overrideUntil ? dateTime(r.overrideUntil) : null;
-  const expired = r.overrideUntil ? new Date(r.overrideUntil).getTime() < Date.now() : true;
-  if (r.overrideMode === 'ARMED' && !expired) return `Đang bảo vệ ngoài lịch, tới ${until}, sau đó quay về lịch.`;
-  if (r.overrideMode === 'DISARMED' && !expired) return `Đang tạm tắt, tới ${until}, sau đó quay về lịch.`;
-  return 'Theo lịch. Thao tác tạm thời tự hết hiệu lực ở ranh giới khung giờ kế tiếp.';
+function modeText(r: DoorRule): string {
+  switch (r.mode) {
+    case 'OFF':
+      return 'Còi không kêu khi cửa này mở, cho tới khi bật lại. Tin Telegram mở cửa vẫn gửi.';
+    case 'ALWAYS':
+      return 'Bảo vệ suốt ngày đêm, bỏ qua khung giờ, cho tới khi đổi lại.';
+    default:
+      return r.inWindowNow
+        ? 'Theo khung giờ bên dưới. Đang trong khung giờ.'
+        : 'Theo khung giờ bên dưới. Đang ngoài khung giờ.';
+  }
 }

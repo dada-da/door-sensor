@@ -101,6 +101,28 @@ public class AlarmDoorRule implements ArmingRule {
                 .collect(Collectors.joining(","));
     }
 
+    /**
+     * Che do lau dai cua cua, do nguoi dung bat tat tren giao dien (14/10).
+     *
+     * <p>Yeu cau ban dau (muc 3.10.2) la thao tac tay het han o ranh gioi khung
+     * gio, de khong quen bat lai. Nguoi dung muon cong tac bat tat thuc su, nen
+     * che do ton tai toi khi doi lai. Rui ro quen bat lai duoc bu bang cach lien
+     * tuc hien danh sach cua dang tat tren giao dien va trong /trangthai.
+     */
+    public enum Mode { OFF, SCHEDULE, ALWAYS }
+
+    public Mode mode() {
+        if (!sirenEnabled) return Mode.OFF;
+        if (overrideMode == AlarmSchedule.Override.ARMED && overrideUntil == null) return Mode.ALWAYS;
+        return Mode.SCHEDULE;
+    }
+
+    public void applyMode(Mode mode) {
+        sirenEnabled = mode != Mode.OFF;
+        overrideMode = mode == Mode.ALWAYS ? AlarmSchedule.Override.ARMED : AlarmSchedule.Override.NONE;
+        overrideUntil = null;
+    }
+
     public void touch() {
         this.updatedAt = Instant.now();
     }

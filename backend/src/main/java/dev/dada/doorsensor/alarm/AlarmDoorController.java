@@ -12,21 +12,18 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Bao dong rieng tung cua: cong tac, khung gio, thao tac tay.
+ * Bao dong rieng tung cua: che do (tat / theo lich / luon bat) va khung gio.
  *
  * <pre>
  * GET  /api/alarm/doors                    moi cua, kem luat va trang thai bao ve hien tai
- * PUT  /api/alarm/doors/{id}               {"sirenEnabled":true,"startTime":"22:00","endTime":"06:00","days":[1,2,3,4,5,6,7]}
- * POST /api/alarm/doors/{id}/arm           bao ve ngay, het hieu luc o ranh gioi khung gio ke tiep
- * POST /api/alarm/doors/{id}/disarm        tat bao ve toi ranh gioi ke tiep
- * POST /api/alarm/doors/{id}/auto          bo thao tac tay, theo lich
+ * PUT  /api/alarm/doors/{id}               {"startTime":"22:00","endTime":"06:00","days":[1,2,3,4,5,6,7]}
+ * PUT  /api/alarm/doors/{id}/mode          {"mode":"OFF" | "SCHEDULE" | "ALWAYS"}, lau dai
  * </pre>
  *
  * Moi truong trong PUT deu tuy chon: gui truong nao doi truong do.
@@ -57,6 +54,8 @@ public class AlarmDoorController {
             LocalTime startTime,
             LocalTime endTime,
             List<Integer> days,
+            /** OFF | SCHEDULE | ALWAYS. */
+            String mode,
             String overrideMode,
             Instant overrideUntil,
             /** Cua nay luc nay co lam coi keu neu bi mo khong. */
@@ -109,39 +108,29 @@ public class AlarmDoorController {
         return ResponseEntity.ok(view(device, rule));
     }
 
-    @PostMapping("/{deviceId}/arm")
-    @Transactional
-    public ResponseEntity<DoorRuleView> arm(@PathVariable String deviceId) {
-        return override(deviceId, AlarmSchedule.Override.ARMED);
+    public record ModeUpdate(AlarmDoorRule.Mode mode) {
     }
 
-    @PostMapping("/{deviceId}/disarm")
+    /**
+     * Cong tac bao dong lau dai: OFF (tat han), SCHEDULE (theo khung gio), ALWAYS
+     * (bao ve suot ngay dem). Co hieu luc ngay, ton tai toi khi doi lai.
+     */
+    @PutMapping("/{deviceId}/mode")
     @Transactional
-    public ResponseEntity<DoorRuleView> disarm(@PathVariable String deviceId) {
-        return override(deviceId, AlarmSchedule.Override.DISARMED);
-    }
-
-    @PostMapping("/{deviceId}/auto")
-    @Transactional
-    public ResponseEntity<DoorRuleView> auto(@PathVariable String deviceId) {
-        return override(deviceId, AlarmSchedule.Override.NONE);
-    }
-
-    private ResponseEntity<DoorRuleView> override(String deviceId, AlarmSchedule.Override mode) {
+    public ResponseEntity<DoorRuleView> mode(@PathVariable String deviceId, @RequestBody ModeUpdate body) {
         Device device = devices.findById(deviceId).orElse(null);
         if (device == null) {
             return ResponseEntity.notFound().build();
         }
+        if (body == null || body.mode() == null) {
+            return ResponseEntity.badRequest().build();
+        }
         AlarmDoorRule rule = rules.effective(deviceId);
-        rule.setOverrideMode(mode);
-        // Thao tac tay khong keo dai vo han: tat bao ve roi quen bat lai la loi
-        // thuong gap nhat cua he thong bao dong that.
-        rule.setOverrideUntil(mode == AlarmSchedule.Override.NONE
-                ? null
-                : decisions.overrideExpiry(rule).toInstant());
+        rule.applyMode(body.mode());
         rule.touch();
         rule = rules.save(rule);
-        events.publishEvent(new AlarmMessages.ScheduleChanged(deviceId, mode == AlarmSchedule.Override.DISARMED));
+        // Tat bao dong cua dung cai cua dang lam coi keu thi tat coi luon.
+        events.publishEvent(new AlarmMessages.ScheduleChanged(deviceId, body.mode() == AlarmDoorRule.Mode.OFF));
         return ResponseEntity.ok(view(device, rule));
     }
 
@@ -155,6 +144,7 @@ public class AlarmDoorController {
                 r.getStartTime(),
                 r.getEndTime(),
                 r.parseDays().stream().map(DayOfWeek::getValue).sorted().toList(),
+                r.mode().name(),
                 r.getOverrideMode().name(),
                 r.getOverrideUntil(),
                 r.isSirenEnabled() && decisions.isArmed(r),

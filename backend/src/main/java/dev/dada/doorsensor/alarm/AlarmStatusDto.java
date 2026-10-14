@@ -18,7 +18,9 @@ public record AlarmStatusDto(
         String sirenLink,
         Instant sirenLastSeen,
         boolean sirenActive,
-        Instant sirenActiveUntil
+        Instant sirenActiveUntil,
+        /** Ten cac cua dang tat bao dong. Hien lien tuc de khong quen bat lai. */
+        java.util.List<String> disabledDoors
 ) {
 
     static String level(boolean enabled, boolean armed, boolean sirenOnline) {

@@ -447,6 +447,33 @@ class AlarmServiceTest {
     }
 
     @Test
+    @DisplayName("Che do Luon bao ve: keu ca giua trua, khong het han")
+    void luonBaoVe() {
+        given(12, 0, 0);
+        rule("door-02").applyMode(AlarmDoorRule.Mode.ALWAYS);
+        assertEquals(AlarmDoorRule.Mode.ALWAYS, rule("door-02").mode());
+        clock.plusSeconds(30 * 24 * 3600);   // mot thang sau van con
+        service.handleDoorTransition(opened("door-02"));
+        assertEquals(1, link.sent.size());
+    }
+
+    @Test
+    @DisplayName("Che do Tat: lau dai, va co ten trong danh sach cua dang tat")
+    void cheDoTat() {
+        given(3, 0, 0);
+        rule("door-01").applyMode(AlarmDoorRule.Mode.OFF);
+        clock.plusSeconds(7 * 24 * 3600);
+        service.handleDoorTransition(opened("door-01"));
+        assertTrue(link.sent.isEmpty());
+        assertEquals(List.of("Cua tang 1"), service.status().disabledDoors());
+
+        rule("door-01").applyMode(AlarmDoorRule.Mode.SCHEDULE);
+        service.handleDoorTransition(opened("door-01"));
+        assertEquals(1, link.sent.size());
+        assertTrue(service.status().disabledDoors().isEmpty());
+    }
+
+    @Test
     @DisplayName("Moi cua deu tat coi: he thong khong bao ve du dang trong khung gio")
     void tatHetCoi() {
         given(3, 0, 0);
