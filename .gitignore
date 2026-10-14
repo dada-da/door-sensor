@@ -20,3 +20,7 @@ firmware/src/config.h
 *.iml
 
 deploy/door-sensor.service
+# Node coi
+firmware-siren/.pio/
+firmware-siren/.vscode/
+firmware-siren/src/config.h
