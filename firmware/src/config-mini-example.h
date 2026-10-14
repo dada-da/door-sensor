@@ -18,9 +18,19 @@
 
 #define DEBOUNCE_MS 50
 
+// ---- dien ap pin (buoc 8). Xoa ca khoi nay neu chua lap cau chia ----
+// GPIO 3 thuoc ADC1 (ADC2 khong dung duoc khi bat Wi-Fi). Cau chia 1 MOhm + 1 MOhm.
+#define BATT_PIN 3
+// (R1 + R2) / R2. Sau hieu chuan: he_so_moi = he_so_cu * (dong_ho / battery_mv)
+#define BATT_DIVIDER 2.000f
+#define BATT_SAMPLES 32
+// Duoi muc nay 3 lan thuc lien tiep thi gui tin cuoi (wake = lowbatt) roi ngu han
+#define BATT_CUTOFF_MV 3300
+
 // ---- chu ky ----
 // Phai NHO HON app.device.offline-after-seconds cua backend (watchdog dung chung
 // mot nguong cho moi thiet bi), co chua le cho thoi gian thuc day va noi mang.
+// Thu nghiem tang toc (buoc 9): dat 10UL va DEBUG_SERIAL 0.
 #define HEARTBEAT_SEC 300UL
 // Gui that bai thi lan sau thuc som hon de gui lai
 #define RETRY_SEC 60UL

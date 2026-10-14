@@ -33,6 +33,62 @@ RTC_DATA_ATTR static int32_t lastRttMs = -1;
 static WiFiClient wifiClient;
 static PubSubClient mqtt(wifiClient);
 
+// ---- dien ap pin (buoc 8 phan pin, CN-07) ----
+// Cau chia 1 MOhm + 1 MOhm tu duong pin xuong GND, diem giua vao BATT_PIN (ADC1),
+// tu 100 nF tu diem giua xuong GND. Chua co BATT_PIN trong config.h thi khong do,
+// firmware chay y nhu truoc.
+#ifdef BATT_PIN
+#ifndef BATT_DIVIDER
+#define BATT_DIVIDER 2.0f // (R1 + R2) / R2, sua theo hieu chuan
+#endif
+#ifndef BATT_SAMPLES
+#define BATT_SAMPLES 32
+#endif
+#ifndef BATT_CUTOFF_MV
+#define BATT_CUTOFF_MV 3300 // duoi muc nay 3 lan lien tiep thi ngat mem
+#endif
+static int32_t battAdcMv = -1; // dien ap tai chan ADC, gui kem de hieu chuan
+static int32_t battMv = -1;    // dien ap pin suy ra
+RTC_DATA_ATTR static uint8_t lowBattCount = 0;
+
+/*
+ * Ngat mem khi pin can. Khong co buoc nay, HT7333 sut ap, C3 khoi dong lai lien tuc
+ * do brownout va van an vai mA, keo pin xuong toi nguong bao ve 2,4-2,5 V cua mach
+ * TP4056 roi nam do hang tuan (thu nghiem buoc 9 chay trong luc vang nha). Ngu sau
+ * khong hen thuc chi an vai chuc uA, pin dung yen quanh 3,3 V. Doc 3 lan lien tiep
+ * de mot lan doc sai khong lam tat thiet bi. Danh thuc lai: nhan RESET.
+ */
+static bool batteryCutoff()
+{
+  if (battMv < 0)
+    return false;
+  if (battMv < BATT_CUTOFF_MV)
+  {
+    if (lowBattCount < 255)
+      lowBattCount++;
+  }
+  else
+  {
+    lowBattCount = 0;
+  }
+  return lowBattCount >= 3;
+}
+
+// Do ngay khi thuc, truoc khi bat Wi-Fi: luc nay board chi an vai mA nen dien ap
+// pin gan voi dien ap ho mach, khong bi sut theo xung phat Wi-Fi.
+static void readBattery()
+{
+  uint32_t sum = 0;
+  for (int i = 0; i < BATT_SAMPLES; i++)
+  {
+    // analogReadMilliVolts ap hieu chuan eFuse cua chip; analogRead tho sai vai tram mV
+    sum += analogReadMilliVolts(BATT_PIN);
+  }
+  battAdcMv = (int32_t)(sum / BATT_SAMPLES);
+  battMv = (int32_t)(battAdcMv * BATT_DIVIDER + 0.5f);
+}
+#endif
+
 static uint32_t tStart = 0; // moc bat dau do, sau phan cho USB cua che do phat trien
 static uint32_t wifiMs = 0, mqttMs = 0;
 static uint32_t sendIndex = 0;
@@ -187,6 +243,13 @@ static bool publishState(int level, const char *wake, bool measureRtt)
   doc["mqtt_ms"] = mqttMs;
   if (lastRttMs >= 0)
     doc["last_rtt_ms"] = lastRttMs;
+#ifdef BATT_PIN
+  if (battMv >= 0)
+  {
+    doc["battery_mv"] = battMv;       // backend da doc truong nay (canh bao pin yeu)
+    doc["batt_adc_mv"] = battAdcMv;   // so tho tai chan ADC, chi de hieu chuan
+  }
+#endif
 
   char payload[384];
   size_t n = serializeJson(doc, payload, sizeof(payload));
@@ -263,6 +326,16 @@ void setup()
 
   int door = readDoor(); // co cho khu rung, vi co the thuc dung luc tiep diem dang nay
   LOG("\n#%lu thuc vi %s, cua %s\n", (unsigned long)bootCount, wake, stateName(door));
+#ifdef BATT_PIN
+  readBattery();
+  LOG("Pin %ld mV (chan ADC %ld mV, he so %.3f)\n", (long)battMv, (long)battAdcMv, (double)BATT_DIVIDER);
+  bool cutoff = batteryCutoff();
+  if (cutoff)
+  {
+    wake = "lowbatt"; // tin cuoi cung, may chu thay trong device_telemetry
+    LOG("Pin duoi %d mV 3 lan lien tiep -> ngat mem\n", BATT_CUTOFF_MV);
+  }
+#endif
 
   bool sent = false;
   int sentState = door;
@@ -297,6 +370,17 @@ void setup()
   // cuoi, dieu kien danh thuc dung ngay, board thuc lai va gui thay doi do.
   // Gui that bai thi theo trang thai hien tai, va hen gio thuc som de gui lai.
   int wakeRef = sent ? sentState : digitalRead(REED_PIN);
+#ifdef BATT_PIN
+  if (cutoff)
+  {
+    // Khong bat nguon danh thuc nao: ngu toi khi nhan RESET hoac cap dien lai.
+#if DEBUG_SERIAL
+    Serial.flush();
+    digitalWrite(LED_PIN, HIGH);
+#endif
+    esp_deep_sleep_start();
+  }
+#endif
   goToSleep(wakeRef, !sent);
 }
 
