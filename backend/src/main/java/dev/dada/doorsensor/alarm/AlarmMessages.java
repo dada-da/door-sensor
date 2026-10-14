@@ -29,10 +29,14 @@ public final class AlarmMessages {
     }
 
     /**
-     * Lich hoac thao tac tay vua doi. Phat sau khi giao dich ghi CSDL da commit.
+     * Lich, cong tac bao dong hoac thao tac tay cua mot cua vua doi. Phat sau khi
+     * giao dich ghi CSDL da commit.
      *
-     * @param disarmedByUser true neu nguoi dung vua bam tat bao ve
+     * @param deviceId      cua vua doi, null neu la cau hinh chung (thoi luong coi)
+     * @param stopsSiren    true neu thay doi nay lam cua khong con kich hoat coi
+     *                      (tat bao ve tay, tat cong tac). Coi dang keu VI CUA NAY
+     *                      thi tat luon: nguoi dung bam tat la da biet chuyen gi.
      */
-    public record ScheduleChanged(boolean disarmedByUser) {
+    public record ScheduleChanged(String deviceId, boolean stopsSiren) {
     }
 }

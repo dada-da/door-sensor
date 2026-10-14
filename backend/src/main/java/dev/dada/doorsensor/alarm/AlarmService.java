@@ -10,7 +10,9 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -70,6 +72,8 @@ public class AlarmService {
     private Instant activeUntil;
     private Long openEventId;
     private Boolean lastArmed;
+    /** Che do bao ve lan tick truoc cua tung cua, de biet cua nao vua vao gio bao ve. */
+    private final Map<String, Boolean> lastDoorArmed = new HashMap<>();
     private boolean armedPublished;
     private Long pendingTestId;
     private Instant testDeadline;
@@ -143,7 +147,8 @@ public class AlarmService {
         // Mac dinh im lang khi khong chac chan (muc 3.10.5).
         // Nguoi dung tat coi rieng cho cua nay (/api/alarm/doors). Telegram mo cua
         // thong thuong van do NotificationService gui, khong lien quan o day.
-        if (!doorRules.sirenEnabled(e.deviceId())) {
+        AlarmDoorRule rule = doorRules.effective(e.deviceId());
+        if (!rule.isSirenEnabled()) {
             log.info("[alarm] Bo qua {}: cua nay khong kich hoat coi", e.deviceId());
             return;
         }
@@ -156,10 +161,11 @@ public class AlarmService {
             return;
         }
 
-        AlarmSchedule schedule = scheduleRepo.current();
+        // Khung gio va thao tac tay la cua rieng cua nay. Thoi luong coi la chung.
         boolean active = isActive(now);
         AlarmDecision d = decisions.decide(
-                new DoorEvent(e.deviceId(), DoorState.OPEN, e.occurredAt(), true), schedule, active);
+                new DoorEvent(e.deviceId(), DoorState.OPEN, e.occurredAt(), true),
+                rule, scheduleRepo.current().getSirenSeconds(), active);
         log.info("[alarm] {} mo -> {} ({})", e.deviceId(), d.action(), d.reason());
         if (!d.shouldBeep()) {
             return;
@@ -205,6 +211,11 @@ public class AlarmService {
     /** Tat tieng coi dang keu (CN-13). Khong doi che do bao ve. */
     public synchronized CommandResult stop() {
         return stopInternal(AlarmEvent.StopSource.REMOTE, true);
+    }
+
+    /** Tat tieng coi tu Telegram. Ghi nguon rieng de bang 5.11 phan biet duoc. */
+    public synchronized CommandResult stopFromTelegram() {
+        return stopInternal(AlarmEvent.StopSource.TELEGRAM, true);
     }
 
     /**
@@ -261,14 +272,22 @@ public class AlarmService {
     @Async("alarmExecutor")
     @TransactionalEventListener(fallbackExecution = true)
     public void onScheduleChanged(AlarmMessages.ScheduleChanged m) {
-        synchronized (this) {
-            // Tat bao ve trong luc coi dang keu thi tat luon coi. Nguoi dung bam
-            // "tat bao ve" la da biet chuyen gi dang xay ra.
-            if (m.disarmedByUser()) {
+        handleScheduleChanged(m);
+    }
+
+    synchronized void handleScheduleChanged(AlarmMessages.ScheduleChanged m) {
+        // Tat bao ve (hoac tat cong tac) cua dung cai cua dang lam coi keu: tat luon
+        // coi. Nguoi dung bam tat la da biet chuyen gi dang xay ra. Coi dang keu vi
+        // cua khac thi khong dong vao.
+        if (m.stopsSiren() && m.deviceId() != null && openEventId != null) {
+            boolean causedByThisDoor = eventRepo.findById(openEventId)
+                    .map(r -> m.deviceId().equals(r.getDeviceId()))
+                    .orElse(false);
+            if (causedByThisDoor) {
                 stopInternal(AlarmEvent.StopSource.OVERRIDE, false);
             }
-            tick();
         }
+        tick();
     }
 
     // ================================================================ node coi
@@ -364,18 +383,30 @@ public class AlarmService {
             activeUntil = null;
         }
 
-        // 2. Che do bao ve doi theo lich hoac het han thao tac tay.
-        boolean armed = decisions.isArmed(scheduleRepo.current());
+        // 2. Che do bao ve tung cua doi theo lich hoac het han thao tac tay.
+        //    He thong "dang bao ve" khi it nhat mot cua dang bao ve.
+        boolean armed = false;
+        List<String> justArmedOpen = new java.util.ArrayList<>();
+        for (Device d : deviceRepo.findAllByOrderByLabelAsc()) {
+            AlarmDoorRule rule = doorRules.effective(d.getId());
+            boolean doorArmed = rule.isSirenEnabled() && decisions.isArmed(rule);
+            Boolean prev = lastDoorArmed.put(d.getId(), doorArmed);
+            // Bang 3.4 dong 1: cua mo san luc bat dau thi khong keu, chi nhac.
+            // Lan tick dau sau khi khoi dong (prev == null) khong tinh la "vua bat".
+            if (prev != null && !prev && doorArmed
+                    && d.getLastState() == dev.dada.doorsensor.domain.DoorState.OPEN) {
+                justArmedOpen.add(d.getLabel());
+            }
+            armed |= doorArmed;
+        }
+        if (!justArmedOpen.isEmpty()) {
+            log.info("[alarm] Bat dau bao ve khi cua dang mo: {}", justArmedOpen);
+            notifier.openAtArmStart(justArmedOpen);
+        }
         if (lastArmed == null || armed != lastArmed) {
-            boolean known = lastArmed != null;
             lastArmed = armed;
             armedPublished = false;
             log.info("[alarm] Che do bao ve: {}", armed ? "BAT" : "TAT");
-            // Bang 3.4 dong 1: cua mo san luc bat dau thi khong keu, chi nhac.
-            // Lan tick dau sau khi khoi dong khong tinh la "vua bat".
-            if (known && armed) {
-                remindOpenDoors();
-            }
         }
         publishArmedIfNeeded();
 
@@ -405,7 +436,7 @@ public class AlarmService {
 
     public synchronized AlarmStatusDto status() {
         Instant now = clock.instant();
-        boolean armed = decisions.isArmed(scheduleRepo.current());
+        boolean armed = anyDoorArmed();
         boolean active = isActive(now);
         return new AlarmStatusDto(
                 props.enabled(),
@@ -470,17 +501,15 @@ public class AlarmService {
         }
     }
 
-    private void remindOpenDoors() {
-        List<String> open = deviceRepo.findAllByOrderByLabelAsc().stream()
-                .filter(d -> d.getLastState() == dev.dada.doorsensor.domain.DoorState.OPEN)
-                // Cua khong kich hoat coi thi mo hay dong cung khong anh huong bao ve.
-                .filter(d -> doorRules.sirenEnabled(d.getId()))
-                .map(Device::getLabel)
-                .toList();
-        if (!open.isEmpty()) {
-            log.info("[alarm] Bat dau bao ve khi cua dang mo: {}", open);
-            notifier.openAtArmStart(open);
+    /** Co it nhat mot cua dang bao ve va duoc phep kich hoat coi. */
+    public synchronized boolean anyDoorArmed() {
+        for (Device d : deviceRepo.findAllByOrderByLabelAsc()) {
+            AlarmDoorRule rule = doorRules.effective(d.getId());
+            if (rule.isSirenEnabled() && decisions.isArmed(rule)) {
+                return true;
+            }
         }
+        return false;
     }
 
     private boolean isActive(Instant now) {

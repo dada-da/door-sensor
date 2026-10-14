@@ -10,7 +10,7 @@ import type {
 import { api } from './api';
 
 interface LiveData {
-  device: DeviceStatus | null;
+  devices: DeviceStatus[];
   events: DoorEvent[];
   hourly: HourlyCount[];
   stats: Stats | null;
@@ -23,7 +23,7 @@ const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 15000;
 
 export function useLive(): LiveData & { refresh: () => void } {
-  const [device, setDevice] = useState<DeviceStatus | null>(null);
+  const [devices, setDevices] = useState<DeviceStatus[]>([]);
   const [events, setEvents] = useState<DoorEvent[]>([]);
   const [hourly, setHourly] = useState<HourlyCount[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -43,7 +43,7 @@ export function useLive(): LiveData & { refresh: () => void } {
         api.hourly(),
         api.stats(),
       ]);
-      setDevice(devices[0] ?? null);
+      setDevices(devices);
       setEvents(evts);
       setHourly(hrs);
       setStats(st);
@@ -76,7 +76,20 @@ export function useLive(): LiveData & { refresh: () => void } {
       socket.onmessage = (frame) => {
         try {
           const msg = JSON.parse(frame.data as string) as RealtimeMessage;
-          setDevice(msg.device);
+          // Moi tin mang trang thai cua MOT cua: thay dung cua do, giu nguyen cua khac.
+          // Truoc 14/10 cho nay ghi de thang, nen giao dien chi hien duoc mot cua.
+          const incomingDevice = msg.device;
+          if (incomingDevice) {
+            setDevices((prev) => {
+              const i = prev.findIndex((d) => d.id === incomingDevice.id);
+              if (i < 0) {
+                return [...prev, incomingDevice].sort((a, b) => a.label.localeCompare(b.label));
+              }
+              const next = prev.slice();
+              next[i] = incomingDevice;
+              return next;
+            });
+          }
 
           if (msg.type === 'door' && msg.event) {
             const incoming = msg.event;
@@ -121,5 +134,5 @@ export function useLive(): LiveData & { refresh: () => void } {
     };
   }, [loadAll]);
 
-  return { device, events, hourly, stats, link, error, refresh: loadAll };
+  return { devices, events, hourly, stats, link, error, refresh: loadAll };
 }

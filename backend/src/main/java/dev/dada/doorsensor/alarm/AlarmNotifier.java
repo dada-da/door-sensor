@@ -40,7 +40,13 @@ public class AlarmNotifier {
         } else {
             sb.append("\n<b>Không gửi được lệnh tới còi</b>, còi gần như chắc chắn không kêu.");
         }
-        telegram.send(sb.toString());
+        if (commandOk) {
+            // Bao dong nham (nguoi nha ve khuya): tat ngay tu dien thoai, khong can mo giao dien.
+            telegram.send(sb.toString(), List.of(List.<String[]>of(
+                    new String[]{"🔕 Tắt còi", TelegramAlarmControl.CALLBACK_STOP})));
+        } else {
+            telegram.send(sb.toString());
+        }
     }
 
     public void sirenOffline(Instant lastSeen) {

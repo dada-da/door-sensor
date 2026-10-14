@@ -31,15 +31,20 @@ public class AlarmDecisionService {
      * <p>Thao tac tay de len lich, nhung het hieu luc o ranh gioi khung gio ke
      * tiep. Qua han thi quay ve theo lich.
      */
-    public boolean isArmed(AlarmSchedule schedule) {
+    public boolean isArmed(ArmingRule rule) {
         ZonedDateTime now = ZonedDateTime.now(clock);
 
-        if (schedule.getOverrideMode() != AlarmSchedule.Override.NONE
-                && schedule.getOverrideUntil() != null
-                && now.toInstant().isBefore(schedule.getOverrideUntil())) {
-            return schedule.getOverrideMode() == AlarmSchedule.Override.ARMED;
+        if (rule.getOverrideMode() != AlarmSchedule.Override.NONE
+                && rule.getOverrideUntil() != null
+                && now.toInstant().isBefore(rule.getOverrideUntil())) {
+            return rule.getOverrideMode() == AlarmSchedule.Override.ARMED;
         }
-        return schedule.toWindow().contains(now);
+        return rule.toWindow().contains(now);
+    }
+
+    /** Thoi diem {@code at} co nam trong khung gio cua luat khong, bo qua thao tac tay. */
+    public boolean inWindow(ArmingRule rule, java.time.Instant at) {
+        return rule.toWindow().contains(at.atZone(clock.getZone()));
     }
 
     /**
@@ -49,6 +54,14 @@ public class AlarmDecisionService {
      * @param sirenActive  coi co dang keu khong, de phan biet kich hoat moi voi gia han
      */
     public AlarmDecision decide(DoorEvent event, AlarmSchedule schedule, boolean sirenActive) {
+        return decide(event, schedule, schedule.getSirenSeconds(), sirenActive);
+    }
+
+    /**
+     * Quyet dinh voi luat bao ve cua rieng mot cua. Thoi luong coi la cau hinh
+     * chung vi chi co mot coi.
+     */
+    public AlarmDecision decide(DoorEvent event, ArmingRule rule, int sirenSeconds, boolean sirenActive) {
         // Chi phan ung voi chuyen sang mo. Dong cua khong bao gio kich hoat coi.
         if (event.state() != DoorState.OPEN) {
             return AlarmDecision.none("NOT_AN_OPENING");
@@ -61,11 +74,11 @@ public class AlarmDecisionService {
             return AlarmDecision.none("ALREADY_OPEN_AT_ARM_TIME");
         }
 
-        if (!isArmed(schedule)) {
+        if (!isArmed(rule)) {
             return AlarmDecision.none("NOT_ARMED");
         }
 
-        int seconds = Math.min(schedule.getSirenSeconds(), MAX_SIREN_SECONDS);
+        int seconds = Math.min(sirenSeconds, MAX_SIREN_SECONDS);
         long durationMs = seconds * 1000L;
 
         // Cua mo tiep trong luc coi dang keu: gia han, khong chong lenh.
@@ -74,7 +87,7 @@ public class AlarmDecisionService {
     }
 
     /** Han cho mot thao tac tay: ranh gioi khung gio ke tiep. */
-    public ZonedDateTime overrideExpiry(AlarmSchedule schedule) {
-        return schedule.toWindow().nextBoundary(ZonedDateTime.now(clock));
+    public ZonedDateTime overrideExpiry(ArmingRule rule) {
+        return rule.toWindow().nextBoundary(ZonedDateTime.now(clock));
     }
 }

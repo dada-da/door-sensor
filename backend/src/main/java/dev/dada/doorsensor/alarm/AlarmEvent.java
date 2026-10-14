@@ -22,7 +22,7 @@ import java.time.Instant;
 @Table(name = "alarm_event")
 public class AlarmEvent {
 
-    public enum StopSource { TIMEOUT, REMOTE, OVERRIDE }
+    public enum StopSource { TIMEOUT, REMOTE, OVERRIDE, TELEGRAM }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

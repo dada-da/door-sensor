@@ -400,3 +400,312 @@ body::before {
 .door-leaf {
   transition: transform 900ms cubic-bezier(0.22, 1, 0.36, 1);
 }
+
+/* ---------- Nhiều cửa ---------- */
+
+.plan-title {
+  margin: 0 0 6px;
+  font-family: var(--font-label);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+/* ---------- Báo động ---------- */
+
+.btn {
+  font-family: var(--font-label);
+  font-size: 16px;
+  font-weight: 500;
+  padding: 6px 14px;
+  color: var(--graphite);
+  background: var(--paper-lift);
+  border: 1px solid var(--graphite);
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--paper);
+}
+
+.btn:disabled {
+  color: var(--construction);
+  border-color: var(--construction);
+  cursor: not-allowed;
+}
+
+.btn-small {
+  font-size: 14px;
+  padding: 3px 10px;
+}
+
+.btn-ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+.btn.is-on {
+  color: var(--paper-lift);
+  background: var(--graphite);
+}
+
+.btn-danger {
+  color: var(--paper-lift);
+  background: var(--annotate);
+  border-color: var(--annotate);
+  font-size: 18px;
+  padding: 8px 22px;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #8a2410;
+}
+
+/* Ba trạng thái phân biệt (báo cáo 3.7). Trạng thái thứ ba tô đặc, không chỉ đổi màu chữ. */
+.alarm-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+  border: 1px solid var(--graphite);
+  border-left-width: 6px;
+  background: var(--paper-lift);
+}
+
+.alarm-banner-state {
+  font-family: var(--font-label);
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.alarm-banner-sub {
+  font-size: 14px;
+  color: var(--graphite-soft);
+}
+
+.alarm-banner.is-armed {
+  border-left-color: var(--nominal);
+}
+
+.alarm-banner.is-armed .alarm-banner-state {
+  color: var(--nominal);
+}
+
+.alarm-banner.is-disarmed,
+.alarm-banner.is-disabled {
+  border-left-color: var(--construction);
+}
+
+.alarm-banner.is-armed-siren-offline {
+  border-color: var(--annotate);
+  background: var(--annotate);
+}
+
+.alarm-banner.is-armed-siren-offline .alarm-banner-state,
+.alarm-banner.is-armed-siren-offline .alarm-banner-sub {
+  color: var(--paper-lift);
+}
+
+.alarm-ringing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+  border: 2px solid var(--annotate);
+  color: var(--annotate);
+  font-family: var(--font-label);
+  font-size: 20px;
+}
+
+.alarm-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.alarm-seconds {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--graphite-soft);
+}
+
+.alarm-seconds input {
+  width: 64px;
+}
+
+.alarm-message {
+  margin: 10px 0 0;
+  font-size: 14px;
+  color: var(--nominal);
+}
+
+.alarm-message.is-bad,
+.is-alert-text {
+  color: var(--annotate);
+}
+
+.alarm-subtitle {
+  margin: 26px 0 12px;
+  font-family: var(--font-label);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+input[type='time'],
+input[type='number'] {
+  font-family: var(--font-data);
+  font-size: 14px;
+  padding: 3px 6px;
+  color: var(--graphite);
+  background: var(--paper-lift);
+  border: 1px solid var(--graphite-soft);
+  border-radius: 0;
+}
+
+.door-rules {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 18px;
+}
+
+.door-rule {
+  padding: 14px 16px;
+  border: 1px solid var(--construction);
+  background: var(--paper-lift);
+}
+
+.door-rule.is-armed {
+  border-color: var(--graphite);
+}
+
+.door-rule-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.door-rule-name {
+  margin: 0;
+  font-family: var(--font-label);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.door-rule-id {
+  font-family: var(--font-data);
+  font-size: 12px;
+  color: var(--graphite-soft);
+}
+
+.door-rule-badge {
+  flex: 0 0 auto;
+  font-family: var(--font-label);
+  font-size: 14px;
+  padding: 1px 8px;
+  border: 1px solid var(--construction);
+  color: var(--graphite-soft);
+}
+
+.door-rule-badge.is-armed {
+  border-color: var(--nominal);
+  color: var(--nominal);
+}
+
+.door-rule-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  cursor: pointer;
+}
+
+.door-rule-switch input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--graphite);
+}
+
+.door-rule-row,
+.door-rule-override {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+}
+
+.door-rule-row .schedule-key,
+.door-rule-override .schedule-key {
+  min-width: 72px;
+}
+
+.door-rule-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.door-rule-actions {
+  display: flex;
+  gap: 8px;
+  padding: 8px 0 10px;
+  border-bottom: 1px dotted var(--construction);
+  margin-bottom: 6px;
+}
+
+.door-rule-note {
+  margin: 2px 0 4px;
+  font-size: 13px;
+  color: var(--graphite-soft);
+}
+
+.day-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.day-chip {
+  font-family: var(--font-label);
+  font-size: 14px;
+  min-width: 34px;
+  padding: 2px 6px;
+  color: var(--graphite-soft);
+  background: transparent;
+  border: 1px solid var(--construction);
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.day-chip.is-on {
+  color: var(--paper-lift);
+  background: var(--graphite);
+  border-color: var(--graphite);
+}
+
+@media (max-width: 720px) {
+  .door-rules {
+    grid-template-columns: 1fr;
+  }
+
+  .alarm-banner-state {
+    font-size: 23px;
+  }
+}
+
+.time-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}

@@ -20,7 +20,7 @@ import java.util.stream.Collectors;
  */
 @Entity
 @Table(name = "alarm_schedule")
-public class AlarmSchedule {
+public class AlarmSchedule implements ArmingRule {
 
     public enum Override { NONE, ARMED, DISARMED }
 
@@ -54,6 +54,7 @@ public class AlarmSchedule {
     private Instant updatedAt = Instant.now();
 
     /** Chuyen sang dang thuan de kiem thu va de tinh toan, khong dinh JPA. */
+    @java.lang.Override
     public ScheduleWindow toWindow() {
         return new ScheduleWindow(enabled, startTime, endTime, parseDays());
     }
@@ -94,9 +95,11 @@ public class AlarmSchedule {
     public String getDaysOfWeek() { return daysOfWeek; }
     public void setDaysOfWeek(String daysOfWeek) { this.daysOfWeek = daysOfWeek; }
 
+    @java.lang.Override
     public Override getOverrideMode() { return overrideMode; }
     public void setOverrideMode(Override overrideMode) { this.overrideMode = overrideMode; }
 
+    @java.lang.Override
     public Instant getOverrideUntil() { return overrideUntil; }
     public void setOverrideUntil(Instant overrideUntil) { this.overrideUntil = overrideUntil; }
 

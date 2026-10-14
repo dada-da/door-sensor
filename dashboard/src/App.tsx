@@ -2,19 +2,22 @@ import { DoorPlan } from './components/DoorPlan';
 import { Schedule } from './components/Schedule';
 import { HourlyChart } from './components/HourlyChart';
 import { EventLog } from './components/EventLog';
+import { AlarmPanel } from './components/AlarmPanel';
 import { useLive } from './useLive';
+import { useAlarm } from './useAlarm';
 import { duration } from './format';
 
 export default function App() {
-  const { device, events, hourly, stats, link, error } = useLive();
+  const { devices, events, hourly, stats, link, error } = useLive();
+  const alarm = useAlarm();
 
   return (
     <div className="sheet">
       <header className="masthead">
         <div>
-          <h1 className="masthead-title">{device?.label ?? 'Cảm biến cửa'}</h1>
+          <h1 className="masthead-title">Giám sát cửa</h1>
           <p className="masthead-sub">
-            Hệ thống nhúng giám sát đóng mở cửa &nbsp;·&nbsp; ESP32 + MQTT
+            Hệ thống nhúng giám sát đóng mở cửa và báo động &nbsp;·&nbsp; ESP32 + MQTT
           </p>
         </div>
         <LinkIndicator state={link} />
@@ -28,7 +31,7 @@ export default function App() {
         </p>
       )}
 
-      {!error && !device && (
+      {!error && devices.length === 0 && (
         <p className="notice">
           <span className="notice-strong">
             Chưa có thiết bị nào gửi dữ liệu.
@@ -38,17 +41,27 @@ export default function App() {
         </p>
       )}
 
-      <section className="plan-row">
-        <DoorPlan
-          state={device?.state ?? null}
-          online={device?.online ?? false}
-        />
-        <Schedule device={device} />
-      </section>
+      {devices.map((device) => (
+        <section className="plan-row" key={device.id} aria-label={device.label}>
+          <div>
+            <h2 className="plan-title">{device.label}</h2>
+            <DoorPlan state={device.state ?? null} online={device.online} />
+          </div>
+          <Schedule device={device} />
+        </section>
+      ))}
+
+      <AlarmPanel
+        status={alarm.status}
+        doors={alarm.doors}
+        settings={alarm.settings}
+        error={alarm.error}
+        run={alarm.run}
+      />
 
       <section className="section">
         <h2 className="section-title">Số lần mở theo giờ</h2>
-        <p className="section-note">24 giờ gần nhất, tính theo giờ Việt Nam.</p>
+        <p className="section-note">24 giờ gần nhất, mọi cửa, tính theo giờ Việt Nam.</p>
         <HourlyChart data={hourly} />
       </section>
 

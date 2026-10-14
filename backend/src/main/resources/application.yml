@@ -60,6 +60,9 @@ app:
     tick-ms: 10000
     # Tu thu coi moi ngay, "-" la tat. Vi du 18h55 hang ngay: '0 55 18 * * *'
     self-test-cron: '-'
+    # Nhan nut "Tat coi" va lenh /tatcoi, /trangthai tu Telegram (chi tu chat-id o duoi).
+    # Can app.notify.enabled va bot-token, chat-id da dat.
+    telegram-control: true
 
   notify:
     enabled: false
@@ -83,6 +86,9 @@ app:
       rearm-above-mv: 3700
       cooldown-hours: 12
 
+    # Tu 14/10 "ngoai gio thuong le" lay theo khung gio bao ve rieng cua tung cua
+    # (bang alarm_door_rule, chinh tren giao dien). start/end o day KHONG con dung,
+    # chi con zone de in gio trong tin Telegram.
     quiet-hours:
       start: '22:00'
       end: '06:00'

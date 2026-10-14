@@ -120,7 +120,12 @@ class AlarmServiceTest {
     final Map<Long, AlarmEvent> events = new LinkedHashMap<>();
     final List<SirenConnectivityEvent> conn = new ArrayList<>();
     final List<Device> devices = new ArrayList<>();
-    final Map<String, Boolean> doorRules = new LinkedHashMap<>();
+    final Map<String, AlarmDoorRule> doorRules = new LinkedHashMap<>();
+
+    /** Luat cua mot cua, tao moi theo mac dinh neu chua co (giong effective + save). */
+    AlarmDoorRule rule(String deviceId) {
+        return doorRules.computeIfAbsent(deviceId, AlarmDoorRule::defaults);
+    }
     final FakeLink link = new FakeLink();
     final RecordingNotifier notifier = new RecordingNotifier();
     long seq;
@@ -169,9 +174,14 @@ class AlarmServiceTest {
 
         // Proxy chan ca phuong thuc default cua interface, nen phai tu cai sirenEnabled.
         AlarmDoorRuleRepository ruleRepo = fakeRepo(AlarmDoorRuleRepository.class, (name, a) -> switch (name) {
-            case "sirenEnabled" -> doorRules.getOrDefault((String) a[0], true);
+            case "effective" -> doorRules.getOrDefault((String) a[0], AlarmDoorRule.defaults((String) a[0]));
             default -> throw new UnsupportedOperationException(name);
         });
+        // He thong "dang bao ve" khi co it nhat mot cua dang bao ve, nen phai co cua.
+        if (devices.isEmpty()) {
+            devices.add(new Device("door-01", "Cua tang 1"));
+            devices.add(new Device("door-02", "Cua tang 2"));
+        }
 
         AlarmProperties props = new AlarmProperties(true, SIREN, 1, 300, 60, 10, "-");
         service = new AlarmService(props, scheduleRepo, new AlarmDecisionService(clock), eventRepo,
@@ -282,7 +292,7 @@ class AlarmServiceTest {
     @DisplayName("Cua bi tat coi rieng: khong keu, khong BAO DONG. Cua khac van keu")
     void tatCoiRiengMotCua() {
         given(3, 0, 0);
-        doorRules.put("door-01", false);
+        rule("door-01").setSirenEnabled(false);
 
         service.handleDoorTransition(opened("door-01"));
         assertTrue(link.sent.isEmpty());
@@ -298,7 +308,7 @@ class AlarmServiceTest {
     @DisplayName("Cua chua cau hinh thi mac dinh kich hoat coi")
     void macDinhKichHoat() {
         given(3, 0, 0);
-        doorRules.put("door-01", false);
+        rule("door-01").setSirenEnabled(false);
         service.handleDoorTransition(opened("door-99"));
         assertEquals(1, link.sent.size());
     }
@@ -356,7 +366,7 @@ class AlarmServiceTest {
         service.handleDoorTransition(opened("door-02"));
         clock.plusSeconds(3);
 
-        service.onScheduleChanged(new AlarmMessages.ScheduleChanged(true));
+        service.handleScheduleChanged(new AlarmMessages.ScheduleChanged("door-02", true));
         assertEquals(AlarmEvent.StopSource.OVERRIDE, onlyEvent().getStopSource());
     }
 
@@ -364,8 +374,86 @@ class AlarmServiceTest {
     @DisplayName("Doi lich khi coi dang im: khong gui STOP thua")
     void doiLichKhiIm() {
         given(12, 0, 0);
-        service.onScheduleChanged(new AlarmMessages.ScheduleChanged(true));
+        service.handleScheduleChanged(new AlarmMessages.ScheduleChanged("door-02", true));
         assertTrue(link.sent.isEmpty());
+    }
+
+    @Test
+    @DisplayName("Tat bao ve cua khac trong luc coi keu vi door-02: khong dong vao coi")
+    void tatBaoVeCuaKhac() {
+        given(3, 0, 0);
+        service.handleDoorTransition(opened("door-02"));
+        service.handleScheduleChanged(new AlarmMessages.ScheduleChanged("door-01", true));
+        assertNull(onlyEvent().getStoppedAt());
+        assertTrue(service.status().sirenActive());
+    }
+
+    @Test
+    @DisplayName("Tat coi tu Telegram: gui STOP, nguon TELEGRAM")
+    void tatQuaTelegram() {
+        given(3, 0, 0);
+        service.handleDoorTransition(opened("door-02"));
+        assertEquals(AlarmService.CommandResult.OK, service.stopFromTelegram());
+        assertEquals("{\"action\":\"STOP\"}", link.last());
+        assertEquals(AlarmEvent.StopSource.TELEGRAM, onlyEvent().getStopSource());
+    }
+
+    // ------------------------------------------------------------- lich rieng tung cua
+
+    @Test
+    @DisplayName("Khung gio rieng: 23h door-01 (22-06) keu, door-02 (00-07) khong")
+    void khungGioRieng() {
+        given(23, 0, 0);
+        rule("door-01").setStartTime(LocalTime.of(22, 0));
+        rule("door-01").setEndTime(LocalTime.of(6, 0));
+
+        service.handleDoorTransition(opened("door-02"));
+        assertTrue(link.sent.isEmpty(), "door-02 chua toi gio");
+
+        service.handleDoorTransition(opened("door-01"));
+        assertEquals(1, link.sent.size());
+        assertEquals("door-01", onlyEvent().getDeviceId());
+    }
+
+    @Test
+    @DisplayName("Tat bao ve tay mot cua: cua do im, cua khac van keu")
+    void tatTayMotCua() {
+        given(3, 0, 0);
+        AlarmDoorRule r = rule("door-01");
+        r.setOverrideMode(AlarmSchedule.Override.DISARMED);
+        r.setOverrideUntil(clock.instant().plusSeconds(3600));
+
+        service.handleDoorTransition(opened("door-01"));
+        assertTrue(link.sent.isEmpty());
+        service.handleDoorTransition(opened("door-02"));
+        assertEquals(1, link.sent.size());
+    }
+
+    @Test
+    @DisplayName("Bat bao ve tay giua trua cho mot cua: cua do keu, he thong bao ARMED")
+    void batTayMotCua() {
+        given(12, 0, 0);
+        AlarmDoorRule r = rule("door-02");
+        r.setOverrideMode(AlarmSchedule.Override.ARMED);
+        r.setOverrideUntil(clock.instant().plusSeconds(3600));
+
+        service.tick();
+        assertEquals(List.of(true), link.armed);
+        assertTrue(service.status().armed());
+        service.handleDoorTransition(opened("door-01"));
+        assertTrue(link.sent.isEmpty(), "door-01 van theo lich, chua toi gio");
+        service.handleDoorTransition(opened("door-02"));
+        assertEquals(1, link.sent.size());
+    }
+
+    @Test
+    @DisplayName("Moi cua deu tat coi: he thong khong bao ve du dang trong khung gio")
+    void tatHetCoi() {
+        given(3, 0, 0);
+        rule("door-01").setSirenEnabled(false);
+        rule("door-02").setSirenEnabled(false);
+        assertFalse(service.anyDoorArmed());
+        assertEquals("DISARMED", service.status().level());
     }
 
     // ------------------------------------------------------------- thu coi
@@ -434,7 +522,7 @@ class AlarmServiceTest {
         Device door3 = new Device("door-03", "Cua phu");
         door3.setLastState(dev.dada.doorsensor.domain.DoorState.OPEN);
         devices.add(door3);
-        doorRules.put("door-03", false);   // tat coi: mo san cung khong can nhac
+        rule("door-03").setSirenEnabled(false);   // tat coi: mo san cung khong can nhac
 
         given(23, 59, 50);
         service.tick();

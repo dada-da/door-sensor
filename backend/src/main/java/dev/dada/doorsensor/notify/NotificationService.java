@@ -5,7 +5,6 @@ import dev.dada.doorsensor.domain.Device;
 import dev.dada.doorsensor.domain.DoorEvent;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalTime;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
@@ -25,6 +24,7 @@ public class NotificationService {
 
     private final NotifyProperties props;
     private final TelegramClient telegram;
+    private final OffHoursLookup offHours;
 
     private final Map<String, DoorThrottle> doorThrottles = new ConcurrentHashMap<>();
     private final Map<String, BatteryAlert> batteryAlerts = new ConcurrentHashMap<>();
@@ -46,9 +46,10 @@ public class NotificationService {
         volatile Instant alertedAt = Instant.EPOCH;
     }
 
-    public NotificationService(NotifyProperties props, TelegramClient telegram) {
+    public NotificationService(NotifyProperties props, TelegramClient telegram, OffHoursLookup offHours) {
         this.props = props;
         this.telegram = telegram;
+        this.offHours = offHours;
     }
 
 
@@ -57,7 +58,8 @@ public class NotificationService {
             return;
         }
 
-        boolean quiet = inQuietHours(event.getOccurredAt());
+        // Khung gio rieng cua cua nay (alarm_door_rule), khong con quiet-hours chung.
+        boolean quiet = offHours.isOffHours(device.getId(), event.getOccurredAt());
         if (props.doorOpen().onlyDuringQuietHours() && !quiet) {
             return;
         }
@@ -228,20 +230,6 @@ public class NotificationService {
                         TelegramClient.escape(device.getLabel()),
                         batteryMv / 1000.0,
                         props.battery().thresholdMv() / 1000.0));
-    }
-
-    private boolean inQuietHours(Instant at) {
-        LocalTime now = ZonedDateTime.ofInstant(at, props.quietHours().zoneId()).toLocalTime();
-        LocalTime start = props.quietHours().startTime();
-        LocalTime end = props.quietHours().endTime();
-
-        if (start.equals(end)) {
-            return false;
-        }
-        if (start.isBefore(end)) {
-            return !now.isBefore(start) && now.isBefore(end);
-        }
-        return !now.isBefore(start) || now.isBefore(end);
     }
 
     private static String humanDuration(long seconds) {
