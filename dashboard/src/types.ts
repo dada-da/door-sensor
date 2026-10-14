@@ -60,7 +60,12 @@ export interface AlarmStatus {
   sirenLastSeen: string | null;
   sirenActive: boolean;
   sirenActiveUntil: string | null;
+  /** Ten cac cua dang tat bao dong. */
+  disabledDoors: string[];
 }
+
+/** Che do lau dai cua mot cua. */
+export type DoorMode = 'OFF' | 'SCHEDULE' | 'ALWAYS';
 
 export type OverrideMode = 'NONE' | 'ARMED' | 'DISARMED';
 
@@ -76,6 +81,7 @@ export interface DoorRule {
   endTime: string;
   /** 1 = thu Hai ... 7 = Chu nhat (ISO-8601). */
   days: number[];
+  mode: DoorMode;
   overrideMode: OverrideMode;
   overrideUntil: string | null;
   armedNow: boolean;
@@ -91,4 +97,61 @@ export interface DoorRuleUpdate {
 
 export interface AlarmSettings {
   sirenSeconds: number;
+}
+
+// ---------------------------------------------------------------- thong ke (mon IoT)
+
+export interface EnvPoint {
+  bucket: string;
+  tempAvg: number | null;
+  tempMin: number | null;
+  tempMax: number | null;
+  rhAvg: number | null;
+  rhMin: number | null;
+  rhMax: number | null;
+  n: number;
+}
+
+export interface EnvSeries {
+  hours: number;
+  step: string;
+  points: EnvPoint[];
+}
+
+export interface DoorRef {
+  id: string;
+  label: string;
+}
+
+export interface OpensSeries {
+  unit: 'hour' | 'day';
+  doors: DoorRef[];
+  buckets: string[];
+  /** counts[i][j]: so lan mo cua doors[j] tai buckets[i]. */
+  counts: number[][];
+}
+
+export interface Heatmap {
+  days: number;
+  /** cells[dow-1][hour], dow 1 = thu Hai. */
+  cells: number[][];
+  daysPerDow: number[];
+  max: number;
+}
+
+export interface StateShare {
+  deviceId: string;
+  label: string;
+  openSeconds: number;
+  closedSeconds: number;
+}
+
+export interface EnvLatest {
+  deviceId: string;
+  measuredAt: string;
+  receivedAt: string;
+  temperatureC: number | null;
+  humidityPct: number | null;
+  ageSeconds: number;
+  readingsLastHour: number;
 }

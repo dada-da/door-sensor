@@ -3,6 +3,12 @@ import type {
   AlarmStatus,
   DeviceStatus,
   DoorEvent,
+  DoorMode,
+  EnvLatest,
+  EnvSeries,
+  Heatmap,
+  OpensSeries,
+  StateShare,
   DoorRule,
   DoorRuleUpdate,
   HourlyCount,
@@ -46,6 +52,13 @@ export const api = {
   doorRules: () => get<DoorRule[]>('/alarm/doors'),
   saveDoorRule: (deviceId: string, u: DoorRuleUpdate) =>
     request<DoorRule>('PUT', `/alarm/doors/${id(deviceId)}`, u),
-  doorOverride: (deviceId: string, action: 'arm' | 'disarm' | 'auto') =>
-    request<DoorRule>('POST', `/alarm/doors/${id(deviceId)}/${action}`),
+  envSeries: (hours: number) => get<EnvSeries>(`/stats/env?hours=${hours}`),
+  envLatest: () => get<EnvLatest[]>('/env/latest'),
+  opensSeries: (unit: 'hour' | 'day', days: number) =>
+    get<OpensSeries>(`/stats/opens?unit=${unit}&days=${days}`),
+  heatmap: (days: number) => get<Heatmap>(`/stats/heatmap?days=${days}`),
+  stateShare: (days: number) => get<StateShare[]>(`/stats/state-share?days=${days}`),
+
+  setDoorMode: (deviceId: string, mode: DoorMode) =>
+    request<DoorRule>('PUT', `/alarm/doors/${id(deviceId)}/mode`, { mode }),
 };

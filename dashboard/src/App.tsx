@@ -3,6 +3,8 @@ import { Schedule } from './components/Schedule';
 import { HourlyChart } from './components/HourlyChart';
 import { EventLog } from './components/EventLog';
 import { AlarmPanel } from './components/AlarmPanel';
+import { StatsPage } from './components/stats/StatsPage';
+import { useEffect, useState } from 'react';
 import { useLive } from './useLive';
 import { useAlarm } from './useAlarm';
 import { duration } from './format';
@@ -10,6 +12,7 @@ import { duration } from './format';
 export default function App() {
   const { devices, events, hourly, stats, link, error } = useLive();
   const alarm = useAlarm();
+  const page = useHashPage();
 
   return (
     <div className="sheet">
@@ -22,6 +25,19 @@ export default function App() {
         </div>
         <LinkIndicator state={link} />
       </header>
+
+      <nav className="tabs" aria-label="Trang">
+        <a href="#" className={`tab${page === 'home' ? ' is-on' : ''}`} aria-current={page === 'home' ? 'page' : undefined}>
+          Tổng quan
+        </a>
+        <a href="#thong-ke" className={`tab${page === 'stats' ? ' is-on' : ''}`} aria-current={page === 'stats' ? 'page' : undefined}>
+          Thống kê
+        </a>
+      </nav>
+
+      {page === 'stats' && <StatsPage />}
+      {page === 'home' && (
+      <>
 
       {error && (
         <p className="notice">
@@ -71,7 +87,7 @@ export default function App() {
           Độ trễ là khoảng cách giữa lúc thiết bị ghi nhận và lúc máy chủ nhận
           được.
         </p>
-        <EventLog events={events} />
+        <EventLog events={events} devices={devices} />
       </section>
 
       <TitleBlock
@@ -80,8 +96,22 @@ export default function App() {
         openSeconds={stats?.openSeconds24h ?? null}
         disconnects={stats?.disconnects24h ?? null}
       />
+      </>
+      )}
     </div>
   );
+}
+
+/** Hai trang, chuyen bang #: khong them thu vien router cho hai duong dan. */
+function useHashPage(): 'home' | 'stats' {
+  const read = () => (window.location.hash === '#thong-ke' ? 'stats' : 'home');
+  const [page, setPage] = useState<'home' | 'stats'>(read);
+  useEffect(() => {
+    const on = () => setPage(read());
+    window.addEventListener('hashchange', on);
+    return () => window.removeEventListener('hashchange', on);
+  }, []);
+  return page;
 }
 
 function LinkIndicator({
