@@ -3,6 +3,7 @@ import { Schedule } from './components/Schedule';
 import { HourlyChart } from './components/HourlyChart';
 import { EventLog } from './components/EventLog';
 import { AlarmPanel } from './components/AlarmPanel';
+import { EnvNow } from './components/EnvNow';
 import { StatsPage } from './components/stats/StatsPage';
 import { useEffect, useState } from 'react';
 import { useLive } from './useLive';
@@ -66,6 +67,8 @@ export default function App() {
           <Schedule device={device} />
         </section>
       ))}
+
+      <EnvNow />
 
       <AlarmPanel
         status={alarm.status}

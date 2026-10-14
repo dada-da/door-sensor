@@ -213,6 +213,11 @@ body::before {
   font-size: 14px;
 }
 
+.section-note a {
+  color: var(--graphite);
+  text-underline-offset: 3px;
+}
+
 .chart {
   display: flex;
   align-items: flex-end;

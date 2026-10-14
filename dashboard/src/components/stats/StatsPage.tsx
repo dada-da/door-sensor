@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../api';
 import { duration } from '../../format';
-import type { EnvLatest, EnvSeries, Heatmap, OpensSeries, StateShare } from '../../types';
+import type { EnvSeries, Heatmap, OpensSeries, StateShare } from '../../types';
 import { EnvLineChart } from './EnvLineChart';
-import { Gauge } from './Gauge';
 import { HeatmapGrid } from './HeatmapGrid';
 import { OpensColumns } from './OpensColumns';
 import { StateDonuts } from './StateDonuts';
@@ -40,7 +39,6 @@ export function StatsPage() {
   const [openRange, setOpenRange] = useState(1);
   const [shareDays, setShareDays] = useState(7);
 
-  const [latest, setLatest] = useState<EnvLatest[]>([]);
   const [env, setEnv] = useState<EnvSeries | null>(null);
   const [opens, setOpens] = useState<OpensSeries | null>(null);
   const [heat, setHeat] = useState<Heatmap | null>(null);
@@ -68,13 +66,8 @@ export function StatsPage() {
   }, [shareDays, guard]);
   useEffect(() => {
     void guard(api.heatmap(28), setHeat);
-    const load = () => void guard(api.envLatest(), setLatest);
-    load();
-    const t = window.setInterval(load, 30000);
-    return () => window.clearInterval(t);
   }, [guard]);
 
-  const now = latest[0];
   const step = env ? stepMinutes(env.step) : 10;
 
   return (
@@ -84,23 +77,6 @@ export function StatsPage() {
           <span className="notice-strong">Không tải được số liệu thống kê.</span> <code>{error}</code>
         </p>
       )}
-
-      <section className="section">
-        <h2 className="section-title">Môi trường hiện tại</h2>
-        <p className="section-note">
-          AHT20 trên node còi{now ? ` (${now.deviceId})` : ''}, gửi mỗi 60 giây.
-          {now && ` Số đo lúc ${fmtDayHour(now.measuredAt)}, ${now.readingsLastHour} mẫu trong giờ qua.`}
-        </p>
-        {!now && <p className="log-empty">Chưa nhận được số đo nào từ AHT20.</p>}
-        {now && (
-          <div className="gauges">
-            <Gauge label="Nhiệt độ" value={now.temperatureC} unit="°C" min={10} max={45} color={TEMP_COLOR} track="#f7d3c4"
-              note={now.ageSeconds > 300 ? `Số đo đã cũ ${duration(now.ageSeconds)}` : undefined} />
-            <Gauge label="Độ ẩm" value={now.humidityPct} unit="%" min={0} max={100} color={RH_COLOR} track="#cde2fb"
-              note={now.ageSeconds > 300 ? `Số đo đã cũ ${duration(now.ageSeconds)}` : undefined} />
-          </div>
-        )}
-      </section>
 
       <section className="section">
         <div className="section-head">
@@ -168,7 +144,7 @@ export function StatsPage() {
       <section className="section">
         <h2 className="section-title">Nếp sinh hoạt: số lần mở theo thứ và giờ</h2>
         <p className="section-note">
-          Trung bình mỗi ngày trong 28 ngày gần nhất, giờ Việt Nam. Ô đậm là khung giờ cửa hay được mở, hữu ích khi chọn khung giờ bảo vệ.
+          Trung bình mỗi ngày trong 28 ngày gần nhất, giờ Việt Nam.
         </p>
         {heat && <HeatmapGrid data={heat} />}
       </section>
