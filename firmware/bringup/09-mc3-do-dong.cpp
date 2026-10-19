@@ -64,24 +64,55 @@ void setup()
 
   // ---- Pha A: Wi-Fi noi, khong ngu modem ----
   blink(1);
+  delay(1500); // cho may tinh kip nhan lai cong USB de doc duoc dong in duoi
+  Serial.printf("Pha A: noi Wi-Fi \"%s\"\n", WIFI_SSID);
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  WiFi.setTxPower(WIFI_POWER_8_5dBm); // giong firmware that (bao cao muc 6.5)
-  WiFi.setSleep(false);
-  uint32_t t = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - t < PHASE_A_WIFI_TIMEOUT_MS)
-    delay(10);
-  Serial.printf("Pha A: Wi-Fi %s, RSSI %d\n",
-                WiFi.status() == WL_CONNECTED ? "OK" : "THAT BAI", WiFi.RSSI());
-  if (WiFi.status() != WL_CONNECTED)
+  bool ok = false;
+  // Thu 3 lan, moi lan toi da 15 s. Lan dau sau khi cap dien C3 hay that bai.
+  for (int attempt = 1; attempt <= 3 && !ok; attempt++)
   {
-    // Khong noi duoc thi so do pha A vo nghia: nhay 5 lan roi bo qua pha A.
-    blink(5);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    WiFi.setTxPower(WIFI_POWER_8_5dBm); // giong firmware that (bao cao muc 6.5)
+    uint32_t t = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - t < PHASE_A_WIFI_TIMEOUT_MS)
+      delay(10);
+    ok = WiFi.status() == WL_CONNECTED;
+    Serial.printf("  lan %d: %s (ma trang thai %d) sau %lu ms\n", attempt, ok ? "OK" : "THAT BAI",
+                  (int)WiFi.status(), (unsigned long)(millis() - t));
+    if (!ok)
+    {
+      WiFi.disconnect(true);
+      delay(500);
+      WiFi.mode(WIFI_STA);
+    }
+  }
+  if (ok)
+  {
+    WiFi.setSleep(false);
+    Serial.printf("Pha A: Wi-Fi OK, RSSI %d dBm, do dong trong %lu s\n", WiFi.RSSI(),
+                  (unsigned long)(PHASE_A_MS / 1000));
+    delay(PHASE_A_MS);
   }
   else
   {
-    delay(PHASE_A_MS);
+    // Quet de biet mang co nhin thay khong: thay thi sai mat khau, khong thay thi sai ten
+    // hoac song yeu. Ma trang thai: 1 = khong thay SSID, 4 = sai mat khau/that bai, 6 = mat ket noi.
+    int n = WiFi.scanNetworks();
+    bool seen = false;
+    for (int i = 0; i < n; i++)
+    {
+      if (WiFi.SSID(i) == WIFI_SSID)
+      {
+        seen = true;
+        Serial.printf("  Thay mang \"%s\", RSSI %d dBm, kenh %d -> kiem tra mat khau\n",
+                      WIFI_SSID, WiFi.RSSI(i), WiFi.channel(i));
+      }
+    }
+    if (!seen)
+      Serial.printf("  KHONG thay mang \"%s\" trong %d mang quet duoc -> kiem tra ten, chi ho tro 2,4 GHz\n",
+                    WIFI_SSID, n);
+    blink(5); // so do pha A vo nghia
   }
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
@@ -90,7 +121,7 @@ void setup()
   blink(2);
   Serial.println("Pha B: CPU chay, Wi-Fi tat");
   volatile uint32_t x = 0;
-  t = millis();
+  uint32_t t = millis();
   while (millis() - t < PHASE_B_MS)
   {
     x = x * 1664525UL + 1013904223UL; // vong lap ban, khong goi delay
