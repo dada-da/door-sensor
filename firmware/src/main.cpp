@@ -29,6 +29,9 @@ static const char *TOPIC_STATUS = "home/door/" DEVICE_ID "/status";
 RTC_DATA_ATTR static uint32_t bootCount = 0;
 RTC_DATA_ATTR static time_t lastNtpSync = 0;
 RTC_DATA_ATTR static int32_t lastRttMs = -1;
+// Diem phat va kenh cua lan noi thanh cong gan nhat: lan sau noi thang, bo buoc quet
+RTC_DATA_ATTR static uint8_t apBssid[6] = {0};
+RTC_DATA_ATTR static int32_t apChannel = 0;
 
 static WiFiClient wifiClient;
 static PubSubClient mqtt(wifiClient);
@@ -138,24 +141,67 @@ static const char *stateName(int level) { return level == HIGH ? "OPEN" : "CLOSE
 
 // ---------------------------------------------------------------- mang
 
+#ifndef WIFI_FAST_MS
+#define WIFI_FAST_MS 2500UL // noi nhanh theo diem phat da nho, qua moc nay thi quet lai
+#endif
+
+static bool waitWifi(uint32_t t0, uint32_t limitMs)
+{
+  while (WiFi.status() != WL_CONNECTED && millis() - t0 < limitMs)
+  {
+    delay(10);
+  }
+  return WiFi.status() == WL_CONNECTED;
+}
+
 static bool connectWifi()
 {
   uint32_t t = millis();
   WiFi.persistent(false); // khong ghi cau hinh Wi-Fi vao flash moi lan thuc
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  WiFi.setTxPower(WIFI_POWER_8_5dBm);
-  while (WiFi.status() != WL_CONNECTED && millis() - t < WIFI_TIMEOUT_MS)
+#if defined(STATIC_IP) && defined(STATIC_GATEWAY) && defined(STATIC_SUBNET)
+  // IP tinh: bo buoc xin DHCP moi lan thuc (vai tram ms toi vai giay)
+  WiFi.config(IPAddress(STATIC_IP), IPAddress(STATIC_GATEWAY), IPAddress(STATIC_SUBNET),
+              IPAddress(STATIC_GATEWAY));
+#endif
+  bool ok = false;
+  bool fast = apChannel > 0;
+  if (fast)
   {
-    delay(10);
+    // Noi thang diem phat va kenh cu: khong quet ca 13 kenh
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD, apChannel, apBssid, true);
+    WiFi.setTxPower(WIFI_POWER_8_5dBm);
+    ok = waitWifi(t, WIFI_FAST_MS);
+    if (!ok)
+    {
+      // Diem phat cu tat hoac doi kenh: quen no, quet lai tu dau
+      LOG("Noi nhanh that bai sau %lu ms, quet lai\n", (unsigned long)(millis() - t));
+      apChannel = 0;
+      WiFi.disconnect();
+    }
+  }
+  if (!ok)
+  {
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    WiFi.setTxPower(WIFI_POWER_8_5dBm);
+    ok = waitWifi(t, WIFI_TIMEOUT_MS);
   }
   wifiMs = millis() - t;
-  bool ok = WiFi.status() == WL_CONNECTED;
-  LOG("Wi-Fi %s sau %lu ms, RSSI %d\n", ok ? "OK" : "THAT BAI", (unsigned long)wifiMs, WiFi.RSSI());
+  if (ok)
+  {
+    memcpy(apBssid, WiFi.BSSID(), 6);
+    apChannel = WiFi.channel();
+  }
+  LOG("Wi-Fi %s (%s) sau %lu ms, RSSI %d, kenh %ld\n", ok ? "OK" : "THAT BAI",
+      fast ? "nhanh" : "quet", (unsigned long)wifiMs, WiFi.RSSI(), (long)apChannel);
   return ok;
 }
 
 static bool clockValid() { return time(nullptr) > 1700000000; }
+
+#ifndef NTP_RETRY_SEC
+#define NTP_RETRY_SEC 3600UL // NTP that bai ma dong ho van dung: 1 gio sau moi thu lai
+#endif
 
 static void syncClockIfNeeded()
 {
@@ -167,18 +213,33 @@ static void syncClockIfNeeded()
   uint32_t t = millis();
   sntp_set_sync_status(SNTP_SYNC_STATUS_RESET);
   configTime(0, 0, "pool.ntp.org", "time.google.com"); // ts gui di la epoch UTC
-  while (sntp_get_sync_status() != SNTP_SYNC_STATUS_COMPLETED && millis() - t < NTP_TIMEOUT_MS)
+  // sntp_get_sync_status() tra COMPLETED dung MOT lan roi tu xoa ve RESET, nen chi
+  // duoc doc mot lan va giu ket qua. Ban truoc doc hai lan: luon coi la that bai,
+  // lan thuc nao cung chay lai NTP, mat toi 3 giay (thu nghiem buoc 9, 20/10).
+  bool done = false;
+  while (millis() - t < NTP_TIMEOUT_MS)
   {
+    if (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED)
+    {
+      done = true;
+      break;
+    }
     delay(20);
   }
-  if (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED)
+  if (done)
   {
     lastNtpSync = time(nullptr);
     LOG("NTP OK sau %lu ms\n", (unsigned long)(millis() - t));
   }
+  else if (clockValid())
+  {
+    // Gia nhu vua dong bo cach day (RESYNC - RETRY) giay: lan thu sau la sau RETRY giay
+    lastNtpSync = time(nullptr) - (time_t)NTP_RESYNC_SEC + (time_t)NTP_RETRY_SEC;
+    LOG("NTP that bai, dung dong ho RTC, thu lai sau %lu s\n", (unsigned long)NTP_RETRY_SEC);
+  }
   else
   {
-    LOG("NTP that bai, %s\n", clockValid() ? "dung dong ho RTC" : "khong gui ts");
+    LOG("NTP that bai, khong gui ts\n");
   }
 }
 
@@ -246,8 +307,8 @@ static bool publishState(int level, const char *wake, bool measureRtt)
 #ifdef BATT_PIN
   if (battMv >= 0)
   {
-    doc["battery_mv"] = battMv;       // backend da doc truong nay (canh bao pin yeu)
-    doc["batt_adc_mv"] = battAdcMv;   // so tho tai chan ADC, chi de hieu chuan
+    doc["battery_mv"] = battMv;     // backend da doc truong nay (canh bao pin yeu)
+    doc["batt_adc_mv"] = battAdcMv; // so tho tai chan ADC, chi de hieu chuan
   }
 #endif
 
