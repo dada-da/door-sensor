@@ -1,9 +1,8 @@
-import { DoorPlan } from './components/DoorPlan';
-import { Schedule } from './components/Schedule';
+import { DoorCard } from './components/DoorCard';
+import { EnvCard } from './components/EnvCard';
 import { HourlyChart } from './components/HourlyChart';
 import { EventLog } from './components/EventLog';
 import { AlarmPanel } from './components/AlarmPanel';
-import { EnvNow } from './components/EnvNow';
 import { StatsPage } from './components/stats/StatsPage';
 import { useEffect, useState } from 'react';
 import { useLive } from './useLive';
@@ -58,47 +57,49 @@ export default function App() {
         </p>
       )}
 
-      {devices.map((device) => (
-        <section className="plan-row" key={device.id} aria-label={device.label}>
-          <div>
-            <h2 className="plan-title">{device.label}</h2>
-            <DoorPlan state={device.state ?? null} online={device.online} />
-          </div>
-          <Schedule device={device} />
-        </section>
-      ))}
-
-      <EnvNow />
-
-      <AlarmPanel
-        status={alarm.status}
-        doors={alarm.doors}
-        settings={alarm.settings}
-        error={alarm.error}
-        run={alarm.run}
-      />
-
-      <section className="section">
-        <h2 className="section-title">Số lần mở theo giờ</h2>
-        <p className="section-note">24 giờ gần nhất, mọi cửa, tính theo giờ Việt Nam.</p>
-        <HourlyChart data={hourly} />
-      </section>
-
-      <section className="section">
-        <h2 className="section-title">Nhật ký sự kiện</h2>
-        <p className="section-note">
-          Độ trễ là khoảng cách giữa lúc thiết bị ghi nhận và lúc máy chủ nhận
-          được.
-        </p>
-        <EventLog events={events} devices={devices} />
-      </section>
-
       <TitleBlock
         opensToday={stats?.opensToday ?? null}
         avgLagMs={stats?.avgLagMs ?? null}
         openSeconds={stats?.openSeconds24h ?? null}
         disconnects={stats?.disconnects24h ?? null}
       />
+
+      {/* Hang tren: moi cua mot the, them the moi truong. Luoi tu xuong dong theo be rong. */}
+      <div className="overview">
+        {devices.map((device) => (
+          <DoorCard key={device.id} device={device} rule={alarm.doors.find((r) => r.deviceId === device.id)} />
+        ))}
+        <EnvCard />
+      </div>
+
+      {/* Hai cot: dieu khien bao dong ben trai, lich su ben phai. Man hinh hep thi xep doc. */}
+      <div className="split">
+        <AlarmPanel
+          status={alarm.status}
+          doors={alarm.doors}
+          settings={alarm.settings}
+          error={alarm.error}
+          run={alarm.run}
+        />
+
+        <div>
+          <section className="section">
+            <h2 className="section-title">Số lần mở theo giờ</h2>
+            <p className="section-note">24 giờ gần nhất, mọi cửa, tính theo giờ Việt Nam.</p>
+            <HourlyChart data={hourly} />
+          </section>
+
+          <section className="section">
+            <h2 className="section-title">Nhật ký sự kiện</h2>
+            <p className="section-note">
+              Độ trễ là khoảng cách giữa lúc thiết bị ghi nhận và lúc máy chủ nhận được.
+            </p>
+            <div className="log-scroll">
+              <EventLog events={events} devices={devices} />
+            </div>
+          </section>
+        </div>
+      </div>
       </>
       )}
     </div>

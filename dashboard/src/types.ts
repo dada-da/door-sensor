@@ -155,3 +155,64 @@ export interface EnvLatest {
   ageSeconds: number;
   readingsLastHour: number;
 }
+
+// ---------------------------------------------------------------- pin, canh bao moi truong
+
+/** GET /api/stats/device: nhat ky moi lan thuc cua cua chay pin, gom theo buoc. */
+export interface DevicePoint {
+  bucket: string;
+  battAvg: number | null;
+  battMin: number | null;
+  battMax: number | null;
+  workMsAvg: number | null;
+  rssiAvg: number | null;
+  wakes: number;
+}
+
+export interface DeviceSeries {
+  deviceId: string;
+  hours: number;
+  step: string;
+  points: DevicePoint[];
+}
+
+export type EnvMetric = 'TEMP' | 'RH';
+export type EnvDirection = 'HIGH' | 'LOW';
+
+/** Nguong null la khong canh bao chieu do. */
+export interface EnvAlertRule {
+  enabled: boolean;
+  tempHigh: number | null;
+  tempLow: number | null;
+  rhHigh: number | null;
+  rhLow: number | null;
+  holdMinutes: number;
+}
+
+export interface EnvAlertActive {
+  deviceId: string;
+  metric: EnvMetric;
+  direction: EnvDirection;
+  since: string;
+  value: number;
+  threshold: number | null;
+  peak: number;
+}
+
+export interface EnvAlerts {
+  rule: EnvAlertRule;
+  active: EnvAlertActive[];
+  tempHysteresis: number;
+  rhHysteresis: number;
+}
+
+export interface EnvAlertEventRow {
+  id: number;
+  deviceId: string;
+  metric: EnvMetric;
+  direction: EnvDirection;
+  kind: 'RAISED' | 'CLEARED';
+  value: number;
+  threshold: number | null;
+  occurredAt: string;
+}

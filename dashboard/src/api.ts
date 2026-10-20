@@ -3,7 +3,11 @@ import type {
   AlarmStatus,
   DeviceStatus,
   DoorEvent,
+  DeviceSeries,
   DoorMode,
+  EnvAlertEventRow,
+  EnvAlertRule,
+  EnvAlerts,
   EnvLatest,
   EnvSeries,
   Heatmap,
@@ -25,6 +29,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   });
   if (res.ok) {
     return res.json() as Promise<T>;
+  }
+  // 400 tu kiem tra nghiep vu (vd. nguong canh bao): hien dung ly do may chu tra ve.
+  if (res.status === 400) {
+    const body = (await res.json().catch(() => null)) as { message?: string } | null;
+    throw new Error(body?.message || 'Giá trị không hợp lệ');
   }
   // Hai ma loi co nghia nghiep vu rieng (AlarmController.respond).
   if (res.status === 409) throw new Error('Còi đang kêu thật, không thử được');
@@ -58,6 +67,12 @@ export const api = {
     get<OpensSeries>(`/stats/opens?unit=${unit}&days=${days}`),
   heatmap: (days: number) => get<Heatmap>(`/stats/heatmap?days=${days}`),
   stateShare: (days: number) => get<StateShare[]>(`/stats/state-share?days=${days}`),
+
+  deviceSeries: (deviceId: string, hours: number) =>
+    get<DeviceSeries>(`/stats/device?deviceId=${id(deviceId)}&hours=${hours}`),
+  envAlerts: () => get<EnvAlerts>('/env/alerts'),
+  saveEnvAlerts: (r: EnvAlertRule) => request<EnvAlerts>('PUT', '/env/alerts', r),
+  envAlertEvents: (limit = 8) => get<EnvAlertEventRow[]>(`/env/alerts/events?limit=${limit}`),
 
   setDoorMode: (deviceId: string, mode: DoorMode) =>
     request<DoorRule>('PUT', `/alarm/doors/${id(deviceId)}/mode`, { mode }),
