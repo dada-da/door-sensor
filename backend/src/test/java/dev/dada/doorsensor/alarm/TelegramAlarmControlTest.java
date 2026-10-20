@@ -58,6 +58,10 @@ class TelegramAlarmControlTest {
                     return new AlarmStatusDto(true, true, "ARMED_SIREN_OFFLINE", "siren-01",
                             "OFFLINE", null, false, null, List.of("Cửa tầng 1"));
                 }
+
+                @Override public String envReport() { return "🌡️ <b>27,4 °C</b>"; }
+
+                @Override public String envStatusLine() { return "Nhiệt độ 27,4 °C, độ ẩm 63,2 %"; }
             },
             om, Clock.fixed(NOW, ZoneId.of("Asia/Ho_Chi_Minh")), RestClient.builder(), true);
 
@@ -132,6 +136,40 @@ class TelegramAlarmControlTest {
         assertTrue(telegram.replies.get(0).contains("MẤT LIÊN LẠC"));
         assertTrue(telegram.replies.get(0).contains("Đang tắt báo động: Cửa tầng 1"), "nhac cua dang tat");
         assertEquals(0, stops);
+    }
+
+    @Test
+    @DisplayName("/trangthai kem mot dong nhiet do, do am")
+    void trangThaiCoMoiTruong() throws Exception {
+        control.handleUpdate(message(OUR_CHAT, "/trangthai", NOW));
+        assertTrue(telegram.replies.get(0).endsWith("\nNhiệt độ 27,4 °C, độ ẩm 63,2 %"));
+    }
+
+    @Test
+    @DisplayName("/nhietdo va cac ten khac tra loi so do moi truong")
+    void nhietDo() throws Exception {
+        assertEquals(TelegramAlarmControl.Outcome.ENV, control.handleUpdate(message(OUR_CHAT, "/nhietdo", NOW)));
+        assertEquals(TelegramAlarmControl.Outcome.ENV, control.handleUpdate(message(OUR_CHAT, "/env@door_bot", NOW)));
+        assertEquals(2, telegram.replies.size());
+        assertTrue(telegram.replies.get(0).contains("27,4 °C"));
+        assertEquals(0, stops);
+    }
+
+    @Test
+    @DisplayName("/nhietdo tu chat la: khong lo so do")
+    void nhietDoChatLa() throws Exception {
+        assertEquals(TelegramAlarmControl.Outcome.IGNORED_FOREIGN_CHAT,
+                control.handleUpdate(message("999", "/nhietdo", NOW)));
+        assertTrue(telegram.replies.isEmpty());
+    }
+
+    @Test
+    @DisplayName("/help liet ke du cac lenh")
+    void help() throws Exception {
+        assertEquals(TelegramAlarmControl.Outcome.HELP, control.handleUpdate(message(OUR_CHAT, "/help", NOW)));
+        for (String[] c : TelegramAlarmControl.COMMANDS) {
+            assertTrue(telegram.replies.get(0).contains("/" + c[0]), c[0]);
+        }
     }
 
     @Test

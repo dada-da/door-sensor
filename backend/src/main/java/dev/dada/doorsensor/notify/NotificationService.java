@@ -1,6 +1,7 @@
 package dev.dada.doorsensor.notify;
 
 import dev.dada.doorsensor.config.NotifyProperties;
+import dev.dada.doorsensor.domain.BatteryLevel;
 import dev.dada.doorsensor.domain.Device;
 import dev.dada.doorsensor.domain.DoorEvent;
 import java.time.Duration;
@@ -223,12 +224,13 @@ public class NotificationService {
 
         telegram.send("""
                 <b>%s sắp hết pin</b>
-                Điện áp %.2f V, dưới ngưỡng %.2f V.
+                Điện áp %.2f V (khoảng %d %%), dưới ngưỡng %.2f V.
 
                 <i>Pin Li-ion xả sâu dưới 3,0 V sẽ hỏng vĩnh viễn. Nên sạc trong vài ngày tới.</i>"""
                 .formatted(
                         TelegramClient.escape(device.getLabel()),
                         batteryMv / 1000.0,
+                        BatteryLevel.percent(batteryMv),
                         props.battery().thresholdMv() / 1000.0));
     }
 

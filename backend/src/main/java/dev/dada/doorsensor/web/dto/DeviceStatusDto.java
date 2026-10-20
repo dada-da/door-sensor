@@ -1,5 +1,6 @@
 package dev.dada.doorsensor.web.dto;
 
+import dev.dada.doorsensor.domain.BatteryLevel;
 import dev.dada.doorsensor.domain.Device;
 import java.time.Duration;
 import java.time.Instant;
@@ -34,17 +35,9 @@ public record DeviceStatusDto(
                 forSeconds,
                 d.getLastSeen(),
                 d.getLastBatteryMv(),
-                batteryPercent(d.getLastBatteryMv()),
+                BatteryLevel.percent(d.getLastBatteryMv()),
                 d.getLastRssi(),
                 d.getBootCount()
         );
-    }
-
-    private static Integer batteryPercent(Integer mv) {
-        if (mv == null) {
-            return null;
-        }
-        int pct = Math.round((mv - 3300) * 100f / (4200 - 3300));
-        return Math.max(0, Math.min(100, pct));
     }
 }

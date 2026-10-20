@@ -3,6 +3,7 @@ package dev.dada.doorsensor.alarm;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.dada.doorsensor.config.NotifyProperties;
+import dev.dada.doorsensor.env.EnvReport;
 import dev.dada.doorsensor.notify.TelegramClient;
 import jakarta.annotation.PreDestroy;
 import java.time.Clock;
@@ -18,7 +19,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 /**
- * Tat coi tu Telegram: nut "Tat coi" trong tin BAO DONG, va lenh /tatcoi, /trangthai.
+ * Dieu khien tu Telegram: nut "Tat coi" trong tin BAO DONG, lenh /tatcoi, /trangthai,
+ * /nhietdo (nhiet do, do am hien tai va nguong canh bao) va /help.
  *
  * <p><b>Vi sao long polling chu khong phai webhook.</b> Webhook can Telegram goi
  * duoc vao Pi tu Internet: phai mo cong, co ten mien, co chung chi TLS. Pi nam sau
@@ -54,24 +56,46 @@ public class TelegramAlarmControl {
     private final boolean enabled;
     private final RestClient http;
 
-    /** Hai viec bot lam duoc. Tach ra de kiem thu ma khong dung ca AlarmService. */
+    /** Nhung viec bot lam duoc. Tach ra de kiem thu ma khong dung ca AlarmService. */
     interface Actions {
         AlarmService.CommandResult stopFromTelegram();
 
         AlarmStatusDto status();
+
+        /** Noi dung /nhietdo. */
+        default String envReport() {
+            return "Chưa có số đo nhiệt độ, độ ẩm.";
+        }
+
+        /** Mot dong moi truong them vao /trangthai, null neu chua co. */
+        default String envStatusLine() {
+            return null;
+        }
     }
+
+    /** Danh sach lenh hien trong nut menu "/" cua Telegram (setMyCommands). */
+    static final String[][] COMMANDS = {
+            {"trangthai", "Trạng thái báo động, còi, nhiệt độ"},
+            {"nhietdo", "Nhiệt độ, độ ẩm hiện tại và ngưỡng cảnh báo"},
+            {"tatcoi", "Tắt còi đang kêu"},
+            {"help", "Danh sách lệnh"},
+    };
 
     private volatile boolean running;
     private long offset;
 
     @org.springframework.beans.factory.annotation.Autowired
     public TelegramAlarmControl(NotifyProperties notify, TelegramClient telegram, AlarmService alarm,
-                                ObjectMapper objectMapper, Clock clock, RestClient.Builder builder,
+                                EnvReport env, ObjectMapper objectMapper, Clock clock, RestClient.Builder builder,
                                 @Value("${app.alarm.telegram-control:true}") boolean enabled) {
         this(notify, telegram, new Actions() {
             @Override public AlarmService.CommandResult stopFromTelegram() { return alarm.stopFromTelegram(); }
 
             @Override public AlarmStatusDto status() { return alarm.status(); }
+
+            @Override public String envReport() { return env.telegramText(); }
+
+            @Override public String envStatusLine() { return env.statusLine(); }
         }, objectMapper, clock, builder, enabled);
     }
 
@@ -98,10 +122,11 @@ public class TelegramAlarmControl {
             return;
         }
         running = true;
+        telegram.setCommands(COMMANDS);
         Thread t = new Thread(this::loop, "telegram-poll");
         t.setDaemon(true);
         t.start();
-        log.info("[telegram] Dang nhan lenh /tatcoi, /trangthai va nut Tat coi");
+        log.info("[telegram] Dang nhan lenh /tatcoi, /trangthai, /nhietdo va nut Tat coi");
     }
 
     @PreDestroy
@@ -135,7 +160,7 @@ public class TelegramAlarmControl {
     }
 
     /** Ket qua xu ly mot update, de kiem thu. */
-    enum Outcome { IGNORED_FOREIGN_CHAT, IGNORED_STALE, IGNORED_OTHER, STOPPED, STOP_FAILED, STATUS }
+    enum Outcome { IGNORED_FOREIGN_CHAT, IGNORED_STALE, IGNORED_OTHER, STOPPED, STOP_FAILED, STATUS, ENV, HELP }
 
     Outcome handleUpdate(JsonNode update) {
         JsonNode callback = update.path("callback_query");
@@ -181,13 +206,41 @@ public class TelegramAlarmControl {
                 return r == AlarmService.CommandResult.OK ? Outcome.STOPPED : Outcome.STOP_FAILED;
             }
             case "/trangthai", "/status" -> {
-                telegram.reply(statusText(alarm.status()));
+                String env = safe(alarm::envStatusLine);
+                telegram.reply(statusText(alarm.status()) + (env == null ? "" : "\n" + env));
                 return Outcome.STATUS;
+            }
+            case "/nhietdo", "/env", "/moitruong" -> {
+                String env = safe(alarm::envReport);
+                telegram.reply(env == null ? "<b>Không đọc được số đo.</b> Thử lại sau." : env);
+                return Outcome.ENV;
+            }
+            case "/help", "/start", "/lenh" -> {
+                telegram.reply(helpText());
+                return Outcome.HELP;
             }
             default -> {
                 return Outcome.IGNORED_OTHER;
             }
         }
+    }
+
+    /** Loi CSDL khi doc moi truong khong duoc lam hong cau tra loi /trangthai. */
+    private static String safe(java.util.function.Supplier<String> s) {
+        try {
+            return s.get();
+        } catch (Exception e) {
+            log.warn("[telegram] Khong doc duoc so do moi truong: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    static String helpText() {
+        StringBuilder sb = new StringBuilder("<b>Các lệnh</b>");
+        for (String[] c : COMMANDS) {
+            sb.append("\n/").append(c[0]).append(" – ").append(c[1]);
+        }
+        return sb.toString();
     }
 
     private boolean isOurChat(String chatId) {

@@ -64,6 +64,29 @@ public class TelegramClient {
         }
     }
 
+    /**
+     * Dat danh sach lenh cho nut menu "/" trong khung chat (setMyCommands). Moi cap
+     * la [lenh khong co dau /, mo ta]. Loi chi ghi log: thieu menu khong anh huong
+     * viec nhan lenh.
+     */
+    public void setCommands(String[][] commands) {
+        if (!ready()) {
+            return;
+        }
+        List<Map<String, String>> list = java.util.Arrays.stream(commands)
+                .map(c -> Map.of("command", c[0], "description", c[1]))
+                .toList();
+        try {
+            http.post()
+                .uri(API + "/bot" + props.telegram().botToken() + "/setMyCommands")
+                .body(Map.of("commands", list))
+                .retrieve()
+                .toBodilessEntity();
+        } catch (Exception e) {
+            log.warn("setMyCommands that bai: {}", e.getMessage());
+        }
+    }
+
     public boolean ready() {
         return props.enabled() && props.telegram().configured();
     }

@@ -14,6 +14,7 @@ import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
@@ -39,15 +40,18 @@ public class EnvIngestService implements MqttCallbackExtended {
     private final SensorReadingRepository repo;
     private final ObjectMapper objectMapper;
     private final TaskScheduler scheduler;
+    private final ApplicationEventPublisher events;
     private volatile MqttClient client;
 
     public EnvIngestService(MqttProperties mqtt, EnvProperties props, SensorReadingRepository repo,
-                            ObjectMapper objectMapper, TaskScheduler scheduler) {
+                            ObjectMapper objectMapper, TaskScheduler scheduler,
+                            ApplicationEventPublisher events) {
         this.mqtt = mqtt;
         this.props = props;
         this.repo = repo;
         this.objectMapper = objectMapper;
         this.scheduler = scheduler;
+        this.events = events;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -101,6 +105,9 @@ public class EnvIngestService implements MqttCallbackExtended {
             repo.save(new SensorReading(deviceId, measuredAt, receivedAt,
                     p.temperatureC(), p.humidityPct()));
             log.debug("[env] {} {} C {} %", deviceId, p.temperatureC(), p.humidityPct());
+            // Canh bao nguong (EnvAlertService). Nghe dong bo tren luong nay; loi ben do
+            // da tu bat, khong lam mat so do vua ghi.
+            events.publishEvent(new EnvReadingSaved(deviceId, measuredAt, p.temperatureC(), p.humidityPct()));
         } catch (Exception e) {
             log.warn("[env] Khong xu ly duoc tin tu {}: {}", topic, e.getMessage());
         }
