@@ -32,6 +32,9 @@ RTC_DATA_ATTR static int32_t lastRttMs = -1;
 // Diem phat va kenh cua lan noi thanh cong gan nhat: lan sau noi thang, bo buoc quet
 RTC_DATA_ATTR static uint8_t apBssid[6] = {0};
 RTC_DATA_ATTR static int32_t apChannel = 0;
+// Lan thuc gui that bai: dem va ghi buoc hong, bao kem trong tin thanh cong ke tiep
+RTC_DATA_ATTR static uint32_t failCount = 0;
+RTC_DATA_ATTR static uint8_t lastFailStage = 0; // 1 wifi, 2 mqtt, 3 publish
 
 static WiFiClient wifiClient;
 static PubSubClient mqtt(wifiClient);
@@ -53,13 +56,23 @@ static PubSubClient mqtt(wifiClient);
 static int32_t battAdcMv = -1; // dien ap tai chan ADC, gui kem de hieu chuan
 static int32_t battMv = -1;    // dien ap pin suy ra
 RTC_DATA_ATTR static uint8_t lowBattCount = 0;
+// Dang ngat mem: chi thuc dinh ky do pin, khong bat Wi-Fi, cho toi khi duoc sac
+RTC_DATA_ATTR static bool inCutoff = false;
+#ifndef BATT_RESUME_MV
+#define BATT_RESUME_MV 3900 // pin nghi sau khi can chi hoi len ~3,4-3,5 V; tren muc nay la da sac
+#endif
+#ifndef BATT_CHECK_SEC
+#define BATT_CHECK_SEC 1800UL // luc ngat mem, 30 phut thuc mot lan (~0,1 s) xem da sac chua
+#endif
 
 /*
  * Ngat mem khi pin can. Khong co buoc nay, HT7333 sut ap, C3 khoi dong lai lien tuc
  * do brownout va van an vai mA, keo pin xuong toi nguong bao ve 2,4-2,5 V cua mach
  * TP4056 roi nam do hang tuan (thu nghiem buoc 9 chay trong luc vang nha). Ngu sau
  * khong hen thuc chi an vai chuc uA, pin dung yen quanh 3,3 V. Doc 3 lan lien tiep
- * de mot lan doc sai khong lam tat thiet bi. Danh thuc lai: nhan RESET.
+ * de mot lan doc sai khong lam tat thiet bi. Trong luc ngat mem board thuc moi
+ * BATT_CHECK_SEC chi de do pin (khong Wi-Fi); pin len tren BATT_RESUME_MV (da cam sac
+ * vao TP4056) thi tu chay lai, gui wake = "charged". Nhan RESET cung chay lai.
  */
 static bool batteryCutoff()
 {
@@ -94,6 +107,7 @@ static void readBattery()
 
 static uint32_t tStart = 0; // moc bat dau do, sau phan cho USB cua che do phat trien
 static uint32_t wifiMs = 0, mqttMs = 0;
+static const char *wifiPath = "scan"; // "fast", "scan" hoac "fast>scan"
 static uint32_t sendIndex = 0;
 
 // do khu hoi: tu dang ky chinh chu de state cua minh, do thoi gian broker gui lai
@@ -142,7 +156,7 @@ static const char *stateName(int level) { return level == HIGH ? "OPEN" : "CLOSE
 // ---------------------------------------------------------------- mang
 
 #ifndef WIFI_FAST_MS
-#define WIFI_FAST_MS 2500UL // noi nhanh theo diem phat da nho, qua moc nay thi quet lai
+#define WIFI_FAST_MS 4000UL // noi theo diem phat da nho, qua moc nay moi quet lai
 #endif
 
 static bool waitWifi(uint32_t t0, uint32_t limitMs)
@@ -154,9 +168,8 @@ static bool waitWifi(uint32_t t0, uint32_t limitMs)
   return WiFi.status() == WL_CONNECTED;
 }
 
-static bool connectWifi()
+static void startStation()
 {
-  uint32_t t = millis();
   WiFi.persistent(false); // khong ghi cau hinh Wi-Fi vao flash moi lan thuc
   WiFi.mode(WIFI_STA);
 #if defined(STATIC_IP) && defined(STATIC_GATEWAY) && defined(STATIC_SUBNET)
@@ -164,27 +177,46 @@ static bool connectWifi()
   WiFi.config(IPAddress(STATIC_IP), IPAddress(STATIC_GATEWAY), IPAddress(STATIC_SUBNET),
               IPAddress(STATIC_GATEWAY));
 #endif
+}
+
+static bool connectWifi()
+{
+  uint32_t t = millis();
+  startStation();
   bool ok = false;
   bool fast = apChannel > 0;
+  wifiPath = "scan";
   if (fast)
   {
     // Noi thang diem phat va kenh cu: khong quet ca 13 kenh
+    wifiPath = "fast";
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD, apChannel, apBssid, true);
     WiFi.setTxPower(WIFI_POWER_8_5dBm);
     ok = waitWifi(t, WIFI_FAST_MS);
     if (!ok)
     {
-      // Diem phat cu tat hoac doi kenh: quen no, quet lai tu dau
+      // Diem phat cu khong tra loi: quen no, tat han radio roi bat lai. Goi begin()
+      // ngay sau disconnect() khi driver con dang noi se bi tu choi ("still
+      // connecting"), ca lan thuc hong va phai cho RETRY_SEC.
       LOG("Noi nhanh that bai sau %lu ms, quet lai\n", (unsigned long)(millis() - t));
       apChannel = 0;
-      WiFi.disconnect();
+      wifiPath = "fast>scan";
+      WiFi.disconnect(true);
+      WiFi.mode(WIFI_OFF);
+      delay(50);
+      startStation();
     }
   }
   if (!ok)
   {
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    uint32_t t2 = millis(); // lan quet co du thoi gian rieng
+    if (WiFi.begin(WIFI_SSID, WIFI_PASSWORD) == WL_CONNECT_FAILED)
+    {
+      delay(200);
+      WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    }
     WiFi.setTxPower(WIFI_POWER_8_5dBm);
-    ok = waitWifi(t, WIFI_TIMEOUT_MS);
+    ok = waitWifi(t2, WIFI_TIMEOUT_MS);
   }
   wifiMs = millis() - t;
   if (ok)
@@ -192,8 +224,8 @@ static bool connectWifi()
     memcpy(apBssid, WiFi.BSSID(), 6);
     apChannel = WiFi.channel();
   }
-  LOG("Wi-Fi %s (%s) sau %lu ms, RSSI %d, kenh %ld\n", ok ? "OK" : "THAT BAI",
-      fast ? "nhanh" : "quet", (unsigned long)wifiMs, WiFi.RSSI(), (long)apChannel);
+  LOG("Wi-Fi %s (%s) sau %lu ms, RSSI %d, kenh %ld\n", ok ? "OK" : "THAT BAI", wifiPath,
+      (unsigned long)wifiMs, WiFi.RSSI(), (long)apChannel);
   return ok;
 }
 
@@ -302,6 +334,13 @@ static bool publishState(int level, const char *wake, bool measureRtt)
   doc["work_ms"] = millis() - tStart;
   doc["wifi_ms"] = wifiMs;
   doc["mqtt_ms"] = mqttMs;
+  doc["wifi_path"] = wifiPath;
+  if (failCount > 0)
+  {
+    static const char *const stages[] = {"none", "wifi", "mqtt", "publish"};
+    doc["fails"] = failCount; // so lan thuc gui hong tu lan cap dien
+    doc["last_fail"] = stages[lastFailStage < 4 ? lastFailStage : 0];
+  }
   if (lastRttMs >= 0)
     doc["last_rtt_ms"] = lastRttMs;
 #ifdef BATT_PIN
@@ -390,6 +429,22 @@ void setup()
 #ifdef BATT_PIN
   readBattery();
   LOG("Pin %ld mV (chan ADC %ld mV, he so %.3f)\n", (long)battMv, (long)battAdcMv, (double)BATT_DIVIDER);
+  if (inCutoff)
+  {
+    if (battMv >= BATT_RESUME_MV)
+    {
+      inCutoff = false;
+      lowBattCount = 0;
+      wake = "charged"; // may chu thay moc pin duoc sac lai
+      LOG("Pin %ld mV >= %d: da sac, chay lai\n", (long)battMv, BATT_RESUME_MV);
+    }
+    else
+    {
+      // Van can: ngu tiep, khong bat Wi-Fi. Moi lan chi ton khoang 0,1 s.
+      esp_sleep_enable_timer_wakeup((uint64_t)BATT_CHECK_SEC * 1000000ULL);
+      esp_deep_sleep_start();
+    }
+  }
   bool cutoff = batteryCutoff();
   if (cutoff)
   {
@@ -400,12 +455,15 @@ void setup()
 
   bool sent = false;
   int sentState = door;
+  uint8_t failStage = 1;
 
   if (connectWifi())
   {
     syncClockIfNeeded();
+    failStage = 2;
     if (connectMqtt())
     {
+      failStage = 3;
       sent = publishState(door, wake, true);
 
       // Cua co the doi trang thai trong 1-3 giay dang noi mang
@@ -426,6 +484,11 @@ void setup()
   WiFi.mode(WIFI_OFF);
 
   lastRttMs = rttMs;
+  if (!sent)
+  {
+    failCount++;
+    lastFailStage = failStage;
+  }
 
   // Hen thuc o muc nguoc voi trang thai DA GUI thanh cong. Neu cua doi sau lan gui
   // cuoi, dieu kien danh thuc dung ngay, board thuc lai va gui thay doi do.
@@ -434,7 +497,9 @@ void setup()
 #ifdef BATT_PIN
   if (cutoff)
   {
-    // Khong bat nguon danh thuc nao: ngu toi khi nhan RESET hoac cap dien lai.
+    // Chi hen gio do pin, khong danh thuc theo cua: cua dong mo khong lam ton pin nua.
+    inCutoff = true;
+    esp_sleep_enable_timer_wakeup((uint64_t)BATT_CHECK_SEC * 1000000ULL);
 #if DEBUG_SERIAL
     Serial.flush();
     digitalWrite(LED_PIN, HIGH);
