@@ -24,6 +24,15 @@
 
 static const char *TOPIC_STATE = "home/door/" DEVICE_ID "/state";
 static const char *TOPIC_STATUS = "home/door/" DEVICE_ID "/status";
+// Cau hinh tu xa, broker giu lai (retained): {"heartbeat_sec":300}. Xem applyConfig().
+static const char *TOPIC_CONFIG = "home/door/" DEVICE_ID "/config";
+
+#ifndef HEARTBEAT_MIN_SEC
+#define HEARTBEAT_MIN_SEC 10UL
+#endif
+#ifndef HEARTBEAT_MAX_SEC
+#define HEARTBEAT_MAX_SEC 600UL // phai nho hon app.device.offline-after-seconds (840) cua backend
+#endif
 
 // ---- song qua giac ngu (bo nho RTC) ----
 RTC_DATA_ATTR static uint32_t bootCount = 0;
@@ -35,6 +44,9 @@ RTC_DATA_ATTR static int32_t apChannel = 0;
 // Lan thuc gui that bai: dem va ghi buoc hong, bao kem trong tin thanh cong ke tiep
 RTC_DATA_ATTR static uint32_t failCount = 0;
 RTC_DATA_ATTR static uint8_t lastFailStage = 0; // 1 wifi, 2 mqtt, 3 publish
+// Chu ky dang dung. 0 = theo HEARTBEAT_SEC trong config.h. Mat dien (rut pin) thi ve 0,
+// lan noi MQTT dau tien doc lai tin cau hinh broker giu.
+RTC_DATA_ATTR static uint32_t heartbeatOverride = 0;
 
 static WiFiClient wifiClient;
 static PubSubClient mqtt(wifiClient);
@@ -275,8 +287,45 @@ static void syncClockIfNeeded()
   }
 }
 
+static uint32_t heartbeatSec()
+{
+  return heartbeatOverride > 0 ? heartbeatOverride : (uint32_t)HEARTBEAT_SEC;
+}
+
+/*
+ * Tin cau hinh: {"heartbeat_sec":N}. N trong [HEARTBEAT_MIN_SEC, HEARTBEAT_MAX_SEC] thi
+ * dung N tu lan ngu nay; N = 0 thi ve HEARTBEAT_SEC cua config.h; ngoai khoang hoac
+ * JSON hong thi bo qua, giu chu ky cu. Tin rong (xoa tin giu lai) cung bo qua.
+ */
+static void applyConfig(const byte *payload, unsigned int len)
+{
+  JsonDocument cfg;
+  if (len == 0 || deserializeJson(cfg, payload, len))
+    return;
+  JsonVariant hb = cfg["heartbeat_sec"];
+  if (!hb.is<uint32_t>())
+    return;
+  uint32_t v = hb.as<uint32_t>();
+  if (v == 0 || (v >= HEARTBEAT_MIN_SEC && v <= HEARTBEAT_MAX_SEC))
+  {
+    if (v != heartbeatOverride)
+      LOG("Cau hinh moi: heartbeat %lu s\n", (unsigned long)(v ? v : HEARTBEAT_SEC));
+    heartbeatOverride = v;
+  }
+  else
+  {
+    LOG("Bo qua heartbeat_sec %lu: ngoai [%lu, %lu]\n", (unsigned long)v,
+        (unsigned long)HEARTBEAT_MIN_SEC, (unsigned long)HEARTBEAT_MAX_SEC);
+  }
+}
+
 static void onMessage(char *topic, byte *payload, unsigned int len)
 {
+  if (strcmp(topic, TOPIC_CONFIG) == 0)
+  {
+    applyConfig(payload, len);
+    return;
+  }
   if (rttMs >= 0 || len >= 512)
     return;
   char buf[512];
@@ -311,6 +360,9 @@ static bool connectMqtt()
     return false;
   }
   mqtt.publish(TOPIC_STATUS, "online", true);
+  // Dang ky config TRUOC state: broker gui tin giu lai ngay sau SUBACK, truoc khi
+  // gui lai tin state cua minh, nen luc do xong khu hoi la da co cau hinh.
+  mqtt.subscribe(TOPIC_CONFIG, 1);
   mqtt.subscribe(TOPIC_STATE, 0);
   LOG("MQTT OK sau %lu ms\n", (unsigned long)mqttMs);
   return true;
@@ -331,6 +383,7 @@ static bool publishState(int level, const char *wake, bool measureRtt)
   if (clockValid())
     doc["ts"] = (uint32_t)time(nullptr);
   doc["wake"] = wake;
+  doc["hb"] = heartbeatSec(); // chu ky dang dung, de thay cau hinh tu xa da an chua
   doc["work_ms"] = millis() - tStart;
   doc["wifi_ms"] = wifiMs;
   doc["mqtt_ms"] = mqttMs;
@@ -351,7 +404,7 @@ static bool publishState(int level, const char *wake, bool measureRtt)
   }
 #endif
 
-  char payload[384];
+  char payload[448]; // tin day du khoang 350 byte; buffer MQTT 512 gom ca ten chu de
   size_t n = serializeJson(doc, payload, sizeof(payload));
 
   echoSeq = seq;
@@ -376,7 +429,7 @@ static bool publishState(int level, const char *wake, bool measureRtt)
 
 static void goToSleep(int wakeOnOppositeOf, bool sendFailed)
 {
-  uint64_t sec = sendFailed ? RETRY_SEC : HEARTBEAT_SEC;
+  uint64_t sec = sendFailed ? RETRY_SEC : heartbeatSec();
   esp_sleep_enable_timer_wakeup(sec * 1000000ULL);
   esp_deep_sleep_enable_gpio_wakeup(BIT(REED_PIN),
                                     wakeOnOppositeOf == LOW ? ESP_GPIO_WAKEUP_GPIO_HIGH : ESP_GPIO_WAKEUP_GPIO_LOW);

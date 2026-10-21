@@ -31,6 +31,9 @@
 // Phai NHO HON app.device.offline-after-seconds cua backend (watchdog dung chung
 // mot nguong cho moi thiet bi), co chua le cho thoi gian thuc day va noi mang.
 // Thu nghiem tang toc (buoc 9): dat 10UL va DEBUG_SERIAL 0.
+// Doi tu xa khong can nap lai: gui tin GIU LAI len home/door/<DEVICE_ID>/config
+//   mosquitto_pub -r -q 1 -t home/door/door-02/config -m '{"heartbeat_sec":300}'
+// Chi nhan 10-600 s; 0 la quay ve gia tri duoi day. Tin state co truong "hb".
 #define HEARTBEAT_SEC 300UL
 // Gui that bai thi lan sau thuc som hon de gui lai
 #define RETRY_SEC 60UL
